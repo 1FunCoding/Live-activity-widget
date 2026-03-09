@@ -95,6 +95,8 @@ const WS = {
   pollOptions: ['', '', ''],
   pollImage: null,
   showImagePicker: false,
+  pollCameraRollSelected: null,
+  pollSendSelectedFriends: [],
   pollResponses: [
     { question:'Which jacket should I buy?', percentage:70, color:'linear-gradient(to right,#2b7fff,#06b6d4)' },
     { question:'Where for dinner?',          percentage:45, color:'linear-gradient(to right,#fa957e,#d01566)' },
@@ -199,6 +201,9 @@ function renderWidget() {
   else if (WS.page==='addActivity')  html = wAddActivity();
   else if (WS.page==='sendPoll')     html = wSendPoll();
   else if (WS.page==='pollResponses') html = wPollResponses();
+  else if (WS.page==='cameraRoll')   html = wCameraRoll();
+  else if (WS.page==='postConfirmation') html = wPostConfirmation();
+  else if (WS.page==='sendToFriends')    html = wSendToFriends();
   if (WS.showProfileSettings) html += wProfileSettingsModal();
   if (WS.showFriendProfile && WS.selectedFriend) html += wFriendProfileModal();
   if (WS.showImagePicker) html += wImagePickerModal();
@@ -1317,7 +1322,9 @@ function wSendPoll() {
   `).join('');
 
   const imageContent = pollImage
-    ? `<div style="width:100%;height:100%;background:${pollImage};border-radius:10px;"></div>`
+    ? (pollImage.startsWith('http')
+        ? `<img src="${pollImage}" alt="Selected" style="width:100%;height:100%;object-fit:cover;border-radius:10px;display:block;pointer-events:none;"/>`
+        : `<div style="width:100%;height:100%;background:${pollImage};border-radius:10px;"></div>`)
     : `<span style="color:#94a3b8;font-size:17px;font-weight:700;pointer-events:none;">+ Tap to Select Image</span>`;
 
   return `
@@ -1326,7 +1333,7 @@ function wSendPoll() {
 
       <!-- Image Column -->
       <div style="flex:1;padding-right:20px;display:flex;align-items:center;justify-content:center;">
-        <button onclick="WS.showImagePicker=true;renderWidget()"
+        <button onclick="wNav('cameraRoll')"
           style="background:#1e293b;border:2px dashed #475569;border-radius:12px;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;transition:border-color 0.15s;cursor:pointer;"
           onmouseover="this.style.borderColor='#64748b'" onmouseout="this.style.borderColor='#475569'">
           ${imageContent}
@@ -1375,16 +1382,13 @@ function wDeletePollOption(i) {
 function wSendPollPost() {
   const filled = WS.pollOptions.filter(o=>o.trim()).length;
   if (filled < 2) { showToast('Please fill in at least 2 options','error'); return; }
-  showToast('Poll posted successfully!','success');
-  WS.pollOptions = ['','','']; WS.pollImage = null;
-  wNav('home');
+  wNav('postConfirmation');
 }
 function wSendPollSend() {
   const filled = WS.pollOptions.filter(o=>o.trim()).length;
   if (filled < 2) { showToast('Please fill in at least 2 options','error'); return; }
-  showToast('Poll sent to friends!','success');
-  WS.pollOptions = ['','','']; WS.pollImage = null;
-  wNav('home');
+  WS.pollSendSelectedFriends = [];
+  wNav('sendToFriends');
 }
 
 /* ---- POLL RESPONSES ---- */
@@ -1463,6 +1467,195 @@ function wSelectPollImage(enc) {
   WS.pollImage = decodeURIComponent(enc);
   WS.showImagePicker = false;
   renderWidget();
+}
+
+/* ================================================================
+   CAMERA ROLL
+   ================================================================ */
+const CAMERA_ROLL_PHOTOS = [
+  'https://images.unsplash.com/photo-1705254613735-1abb457f8a60?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjb2xvcmZ1bCUyMGFic3RyYWN0JTIwYXJ0fGVufDF8fHx8MTc3MzA2ODYzMHww&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1732808460864-b8e5eb489a52?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzdW5zZXQlMjBsYW5kc2NhcGUlMjBuYXR1cmV8ZW58MXx8fHwxNzczMDAxNDE3fDA&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1695067439031-f59068994fae?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBhcmNoaXRlY3R1cmUlMjBidWlsZGluZ3xlbnwxfHx8fDE3NzI5Nzg3NjN8MA&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1643316408393-9328a1e973ed?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjb2ZmZWUlMjBjYWZlJTIwbGF0dGV8ZW58MXx8fHwxNzczMDI1MzU0fDA&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1569832724830-0b4ab7b52ab2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxvY2VhbiUyMGJlYWNoJTIwd2F2ZXN8ZW58MXx8fHwxNzczMDg4MDM5fDA&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1614022837662-e74b0b53dcf3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmb3Jlc3QlMjB0cmVlcyUyMG5hdHVyZXxlbnwxfHx8fDE3NzMwNTM4NjJ8MA&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1732644144489-b1974816d3c0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjaXR5JTIwbGlnaHRzJTIwbmlnaHR8ZW58MXx8fHwxNzczMDIwNDMzfDA&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1620649214867-d0f1661f0d64?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmb29kJTIwYnJlYWtmYXN0JTIwaGVhbHRoeXxlbnwxfHx8fDE3NzMwODQwMDN8MA&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1636280703520-2bff23d567eb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb3VudGFpbiUyMGxhbmRzY2FwZSUyMHBlYWtzfGVufDF8fHx8MTc3MzA5NTA2M3ww&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1725274999686-4035dc6f473c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmbG93ZXJzJTIwZ2FyZGVuJTIwYmxvb218ZW58MXx8fHwxNzczMDk1MDY0fDA&ixlib=rb-4.1.0&q=80&w=400',
+];
+
+function wCameraRoll() {
+  const sel = WS.pollCameraRollSelected;
+  const photosHtml = CAMERA_ROLL_PHOTOS.map((url, i) => {
+    const isSel = sel === i;
+    return `
+    <button onclick="WS.pollCameraRollSelected=${i};renderWidget()"
+      style="aspect-ratio:1;background:#1e293b;border:2px solid ${isSel?'#ec4899':'#475569'};border-radius:12px;overflow:hidden;position:relative;transition:all 0.15s;cursor:pointer;padding:0;${isSel?'box-shadow:0 0 0 2px #ec4899;':''}"
+      onmouseover="if(${i}!==WS.pollCameraRollSelected){this.style.borderColor='#64748b'}"
+      onmouseout="if(${i}!==WS.pollCameraRollSelected){this.style.borderColor='#475569'}">
+      <img src="${url}" alt="Photo ${i+1}" style="width:100%;height:100%;object-fit:cover;display:block;"/>
+      ${isSel ? `
+        <div style="position:absolute;inset:0;background:rgba(236,72,153,0.2);display:flex;align-items:center;justify-content:center;">
+          <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#fa957e,#d01566);display:flex;align-items:center;justify-content:center;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+        </div>` : ''}
+    </button>`;
+  }).join('');
+
+  return `
+  <div style="min-height:calc(100vh - 49px);background:linear-gradient(152deg,#0f172a 0%,#1d293d 50%,#0f172a 100%);display:flex;align-items:center;justify-content:center;padding:32px;" class="anim-fade">
+    <div style="background:#0f172a;border:8px solid #334155;border-radius:40px;padding:28px;width:100%;max-width:800px;box-shadow:0 25px 50px rgba(0,0,0,0.6);box-sizing:border-box;">
+
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+        <h1 style="color:white;font-size:28px;font-weight:700;margin:0;">Camera Roll</h1>
+        <button onclick="wNav('sendPoll')"
+          style="background:#475569;border:none;border-radius:12px;padding:10px 24px;color:white;font-size:14px;font-weight:500;transition:background 0.15s;cursor:pointer;"
+          onmouseover="this.style.background='#5a6678'" onmouseout="this.style.background='#475569'">Back</button>
+      </div>
+
+      <!-- Photo Grid -->
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;">
+        ${photosHtml}
+      </div>
+
+      <!-- Use Photo Button -->
+      ${sel !== null ? `
+      <div style="display:flex;justify-content:center;margin-top:16px;">
+        <button onclick="wConfirmCameraPhoto()"
+          style="background:linear-gradient(135deg,#fa957e,#d01566);border:none;border-radius:12px;padding:12px 32px;color:white;font-size:16px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:opacity 0.15s;cursor:pointer;"
+          onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Use Selected Photo</button>
+      </div>` : ''}
+
+    </div>
+  </div>`;
+}
+
+function wConfirmCameraPhoto() {
+  if (WS.pollCameraRollSelected !== null) {
+    WS.pollImage = CAMERA_ROLL_PHOTOS[WS.pollCameraRollSelected];
+    WS.pollCameraRollSelected = null;
+  }
+  wNav('sendPoll');
+}
+
+/* ================================================================
+   POST CONFIRMATION
+   ================================================================ */
+function wPostConfirmation() {
+  return `
+  <div style="min-height:calc(100vh - 49px);background:linear-gradient(152deg,#0f172a 0%,#1d293d 50%,#0f172a 100%);display:flex;align-items:center;justify-content:center;padding:32px;" class="anim-scale">
+    <div style="background:#0f172a;border:8px solid #334155;border-radius:40px;padding:48px;width:100%;max-width:800px;height:400px;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 25px 50px rgba(0,0,0,0.6);box-sizing:border-box;">
+
+      <h1 style="color:white;font-size:32px;font-weight:700;text-align:center;margin:0 0 48px;">Are you sure you want to post?</h1>
+
+      <div style="display:flex;gap:24px;">
+        <button onclick="wConfirmPost()"
+          style="background:linear-gradient(135deg,#fa957e,#d01566);border:none;border-radius:16px;padding:16px 48px;color:white;font-size:20px;font-weight:700;box-shadow:0 8px 20px rgba(0,0,0,0.3);transition:opacity 0.15s;cursor:pointer;min-width:140px;"
+          onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Yes</button>
+        <button onclick="wNav('sendPoll')"
+          style="background:#475569;border:none;border-radius:16px;padding:16px 48px;color:white;font-size:20px;font-weight:700;box-shadow:0 8px 20px rgba(0,0,0,0.3);transition:background 0.15s;cursor:pointer;min-width:140px;"
+          onmouseover="this.style.background='#5a6678'" onmouseout="this.style.background='#475569'">Back</button>
+      </div>
+
+    </div>
+  </div>`;
+}
+
+function wConfirmPost() {
+  WS.pollSendSelectedFriends = [];
+  wNav('sendToFriends');
+}
+
+/* ================================================================
+   SEND TO FRIENDS
+   ================================================================ */
+const POLL_FRIENDS = [
+  { id:'1', name:'Jordan', initials:'JD', gradient:'linear-gradient(135deg,#00c950,#009966)' },
+  { id:'2', name:'Taylor', initials:'TW', gradient:'linear-gradient(135deg,#fe9a00,#f54900)' },
+  { id:'3', name:'Alex',   initials:'AJ', gradient:'linear-gradient(135deg,#00b8db,#155dfc)' },
+  { id:'4', name:'Morgan', initials:'MC', gradient:'linear-gradient(135deg,#8a2be2,#4b0082)' },
+  { id:'5', name:'Sarah',  initials:'SM', gradient:'linear-gradient(135deg,#f6339a,#ec003f)' },
+];
+
+function wSendToFriends() {
+  const selected = WS.pollSendSelectedFriends;
+
+  const friendsHtml = POLL_FRIENDS.map(f => {
+    const isSel = selected.includes(f.id);
+    return `
+    <button onclick="wTogglePollFriend('${f.id}')"
+      style="display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:none;padding:0;cursor:pointer;position:relative;">
+      <div style="position:relative;">
+        <div style="width:80px;height:80px;border-radius:50%;background:${f.gradient};display:flex;align-items:center;justify-content:center;color:white;font-size:24px;font-weight:700;box-shadow:0 8px 20px rgba(0,0,0,0.3);transition:transform 0.15s;${isSel?'transform:scale(1.08);':''}"
+          onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='${isSel?'scale(1.08)':'scale(1)'}'">
+          ${f.initials}
+        </div>
+        ${isSel ? `
+        <div style="position:absolute;top:-4px;left:64px;width:22px;height:22px;border-radius:50%;background:#2b7fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 8px rgba(0,0,0,0.3);">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+            <line stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.625" x1="6.5" x2="6.5" y1="2.708" y2="10.292" transform="rotate(45 6.5 6.5)"/>
+            <line stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.625" x1="2.708" x2="10.292" y1="6.5" y2="6.5" transform="rotate(45 6.5 6.5)"/>
+          </svg>
+        </div>` : ''}
+      </div>
+      <span style="color:rgba(255,255,255,0.7);font-size:16px;font-weight:500;">${f.name}</span>
+    </button>`;
+  }).join('');
+
+  return `
+  <div style="min-height:calc(100vh - 49px);background:linear-gradient(152deg,#0f172a 0%,#1d293d 50%,#0f172a 100%);display:flex;align-items:center;justify-content:center;padding:32px;" class="anim-fade">
+    <div style="background:#0f172a;border:8px solid #334155;border-radius:40px;padding:28px;width:100%;max-width:800px;height:400px;display:flex;flex-direction:column;box-shadow:0 25px 50px rgba(0,0,0,0.6);box-sizing:border-box;">
+
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:32px;">
+        <h1 style="color:white;font-size:28px;font-weight:700;margin:0;">Send to Friends</h1>
+        <button onclick="wNav('sendPoll')"
+          style="background:#475569;border:none;border-radius:12px;padding:10px 24px;color:white;font-size:14px;font-weight:500;transition:background 0.15s;cursor:pointer;"
+          onmouseover="this.style.background='#5a6678'" onmouseout="this.style.background='#475569'">Back</button>
+      </div>
+
+      <!-- Friends -->
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;">
+        <div style="display:flex;gap:32px;align-items:flex-end;">
+          ${friendsHtml}
+        </div>
+      </div>
+
+      <!-- Send Buttons -->
+      <div style="display:flex;justify-content:center;gap:16px;margin-top:32px;">
+        <button onclick="wSendPollToAll()"
+          style="background:linear-gradient(135deg,#2b7fff,#06b6d4);border:none;border-radius:16px;padding:16px 48px;color:white;font-size:20px;font-weight:700;box-shadow:0 8px 20px rgba(0,0,0,0.3);transition:opacity 0.15s;cursor:pointer;"
+          onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Send to All</button>
+        <button onclick="wSendPollToSelected()" ${selected.length===0?'disabled':''
+          } style="background:linear-gradient(135deg,#fa957e,#d01566);border:none;border-radius:16px;padding:16px 48px;color:white;font-size:20px;font-weight:700;box-shadow:0 8px 20px rgba(0,0,0,0.3);transition:all 0.15s;cursor:pointer;${selected.length===0?'opacity:0.5;cursor:not-allowed;':''}"
+          onmouseover="if(${selected.length}>0)this.style.opacity='0.85'" onmouseout="if(${selected.length}>0)this.style.opacity='1'">Send to Selected</button>
+      </div>
+
+    </div>
+  </div>`;
+}
+
+function wTogglePollFriend(id) {
+  const s = WS.pollSendSelectedFriends;
+  WS.pollSendSelectedFriends = s.includes(id) ? s.filter(x=>x!==id) : [...s, id];
+  renderWidget();
+}
+
+function wSendPollToAll() {
+  showToast('Poll sent to all friends!', 'success');
+  WS.pollOptions = ['','','']; WS.pollImage = null; WS.pollSendSelectedFriends = [];
+  wNav('home');
+}
+
+function wSendPollToSelected() {
+  if (WS.pollSendSelectedFriends.length === 0) { showToast('Select at least one friend', 'error'); return; }
+  const names = WS.pollSendSelectedFriends.map(id => { const f=POLL_FRIENDS.find(x=>x.id===id); return f?f.name:id; }).join(', ');
+  showToast(`Poll sent to ${names}!`, 'success');
+  WS.pollOptions = ['','','']; WS.pollImage = null; WS.pollSendSelectedFriends = [];
+  wNav('home');
 }
 
 /* ================================================================
