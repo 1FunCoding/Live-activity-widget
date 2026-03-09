@@ -1,6 +1,6 @@
 # Phone Widget & Activity Workflow
 
-A single-page web app combining a **Phone Widget** design and an **Activity Workflow** for planning activities, tracking sessions, and staying connected with friends. Built for CSEN 129.
+A single-page web app combining a **Phone Widget** design and an **Activity Workflow** for planning activities, tracking sessions, and staying connected with friends. 
 
 ## Features
 
