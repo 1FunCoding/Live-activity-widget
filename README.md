@@ -1,6 +1,12 @@
 # Phone Widget & Activity Workflow
 
-A single-page web app combining a **Phone Widget** design and an **Activity Workflow** for planning activities, tracking sessions, and staying connected with friends. 
+A single-page web app combining a **Phone Widget** design and an **Activity Workflow** for planning activities, tracking sessions, and staying connected with friends.
+
+## Live Demo
+
+**[→ Open the app in your browser](https://1funcoding.github.io/Live-activity-widget/)**
+
+🔗 **https://1funcoding.github.io/Live-activity-widget/** 
 
 ## Features
 
@@ -37,6 +43,7 @@ No build step or server required — the app loads Tailwind from the CDN and run
 ```
 .
 ├── README.md
+├── index.html       # Entry point for GitHub Pages (same as combined.html)
 └── combined.html    # All UI, styles, and logic in one file
 ```
 
