@@ -1,0 +1,1668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Phone Widget & Activity Workflow</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
+
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideRight { from { transform: translateX(60px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    @keyframes scaleIn { from { transform: scale(0.85); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    @keyframes toastIn { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    @keyframes toastOut { from { opacity: 1; } to { opacity: 0; } }
+    @keyframes confettiFall { from { transform: translateY(-20px) rotate(0deg); opacity: 1; } to { transform: translateY(560px) rotate(720deg); opacity: 0; } }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+    .anim-fade { animation: fadeIn 0.3s ease; }
+    .anim-slide { animation: slideRight 0.4s ease; }
+    .anim-scale { animation: scaleIn 0.25s ease; }
+    button { cursor: pointer; }
+    .progress-bar { transition: width 0.3s ease; }
+    .pulse-dot { animation: pulse 2s infinite; }
+    .confetti-piece { position: absolute; width: 10px; height: 10px; border-radius: 50%; pointer-events: none; animation: confettiFall linear forwards; }
+
+    #toast-container { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 9999; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+    .toast { padding: 12px 20px; border-radius: 8px; color: white; font-size: 14px; font-weight: 500; animation: toastIn 0.3s ease; pointer-events: auto; white-space: nowrap; }
+    .toast-success { background: rgba(34,197,94,0.95); }
+    .toast-info    { background: rgba(59,130,246,0.95); }
+    .toast-error   { background: rgba(239,68,68,0.95); }
+
+    select option { background: #3d4f68; color: white; }
+    ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: transparent; } ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+  </style>
+</head>
+<body style="background:#0a1120;min-height:100vh;">
+
+<!-- ===== TAB BAR ===== -->
+<div style="background:#0d1526;border-bottom:1px solid rgba(255,255,255,0.1);display:flex;position:sticky;top:0;z-index:200;">
+  <button id="tab-widget" onclick="switchApp('widget')" style="padding:14px 28px;font-size:14px;font-weight:500;color:white;background:none;border:none;border-bottom:2px solid #6366f1;">Phone Widget Design</button>
+</div>
+
+<div id="widget-app"></div>
+<div id="workflow-app" style="display:none;"></div>
+<div id="toast-container"></div>
+
+<script>
+/* ================================================================
+   GLOBAL STATE
+   ================================================================ */
+
+let currentApp = 'widget';
+
+// ----- Phone Widget -----
+const WS = {
+  page: 'home',
+  showProfileSettings: false,
+  showFriendProfile: false,
+  selectedFriend: null,
+  selectedStatus: 'online',
+  calendarDate: 1,
+  addActivity: { title:'', description:'', fromTime:'9:00 AM', toTime:'12:00 PM', selectedFriends:[] },
+  calendarActivities: {
+    1: [
+      { title:'CSEN 79 Study Sesh',     time:'3:00 PM — 7:00 PM',  participants:['John Doe','Sarah Smith'], color:'linear-gradient(to right,#3b82f6,#9333ea)' },
+      { title:'Trivia Night',           time:'9:00 PM — 10:00 PM', participants:['Jake Brown'],             color:'linear-gradient(to right,#ec4899,#db2777)' },
+    ],
+    2: [
+      { title:'CSEN 12 Lecture',        time:'10:00 AM — 11:30 AM',participants:['Prof. Martinez'],         color:'linear-gradient(to right,#06b6d4,#3b82f6)' },
+      { title:'Gym Session',            time:'5:00 PM — 6:30 PM',  participants:['Jordan'],                 color:'linear-gradient(to right,#22c55e,#16a34a)' },
+    ],
+    3: [
+      { title:'Coffee with Taylor',     time:'11:00 AM — 12:00 PM',participants:['Taylor'],                 color:'linear-gradient(to right,#f97316,#ef4444)' },
+      { title:'Gaming Night',           time:'8:00 PM — 10:00 PM', participants:['Alex','Jordan'],          color:'linear-gradient(to right,#10b981,#06b6d4)' },
+    ],
+    4: [
+      { title:'Group Project Meeting',  time:'2:00 PM — 4:00 PM',  participants:['Morgan','Casey','Taylor'],color:'linear-gradient(to right,#7c3aed,#3b82f6)' },
+      { title:'CSEN 79 Study Sesh',     time:'6:00 PM — 9:00 PM',  participants:['Sarah Smith'],            color:'linear-gradient(to right,#3b82f6,#9333ea)' },
+    ],
+    5: [
+      { title:'Morning Run',            time:'7:00 AM — 8:00 AM',  participants:['Jordan'],                 color:'linear-gradient(to right,#14b8a6,#06b6d4)' },
+      { title:'Movie Night',            time:'7:00 PM — 10:00 PM', participants:['Sarah','Alex','Morgan'],  color:'linear-gradient(to right,#a855f7,#ec4899)' },
+    ],
+    6: [
+      { title:'Pizza Night',            time:'6:00 PM — 8:00 PM',  participants:['All Friends'],            color:'linear-gradient(to right,#f59e0b,#f97316)' },
+      { title:'Karaoke',                time:'9:00 PM — 11:00 PM', participants:['Taylor','Casey'],         color:'linear-gradient(to right,#ec4899,#db2777)' },
+    ],
+    7: [
+      { title:'Hiking Trip',            time:'9:00 AM — 1:00 PM',  participants:['Jordan','Morgan','Alex'], color:'linear-gradient(to right,#22c55e,#10b981)' },
+      { title:'Birthday Party',         time:'7:00 PM — 11:00 PM', participants:['All Friends'],            color:'linear-gradient(to right,#7c3aed,#db2777)' },
+    ],
+  },
+  pollOptions: ['', '', ''],
+  pollImage: null,
+  showImagePicker: false,
+  pollCameraRollSelected: null,
+  pollSendSelectedFriends: [],
+  pollResponses: [
+    { question:'Which jacket should I buy?', percentage:70, color:'linear-gradient(to right,#2b7fff,#06b6d4)' },
+    { question:'Where for dinner?',          percentage:45, color:'linear-gradient(to right,#fa957e,#d01566)' },
+  ],
+  friends: [
+    { id:'1', name:'Jordan', initials:'JD', online:true,  phone:'(555) 123-4567' },
+    { id:'2', name:'Taylor', initials:'TW', online:true,  phone:'(555) 987-6543' },
+    { id:'3', name:'Morgan', initials:'MC', online:false, phone:'(555) 456-7890' },
+    { id:'4', name:'Alex',   initials:'AJ', online:false, phone:'(555) 321-0987' },
+    { id:'5', name:'Sarah',  initials:'SM', online:false, phone:'(555) 789-0123' },
+  ],
+};
+
+// ----- Shared Activity Workflow -----
+const FL = {
+  page: 'activitySelect',
+  session: {
+    activityType:'study', activityName:'Study Session',
+    activityGradient:'linear-gradient(138.279deg, rgb(43,127,255) 0%, rgb(152,16,250) 100%)',
+    goalLength:3600, startTime:null, elapsedTime:0,
+    isActive:false, isPaused:false, friends:[], breakCount:0,
+  },
+  goalHours:1, goalMinutes:0,
+  selectedFriendId:null, showEndDialog:false,
+  breakTimer:{ selectedDuration:null, timeRemaining:0, isTimerActive:false, showAlert:false },
+  timerInterval:null, breakTimerInterval:null,
+};
+
+const SETUP_FRIENDS = [
+  { id:'1', name:'Sarah',  initials:'SM', color:'linear-gradient(135deg, rgb(246,51,154) 0%, rgb(236,0,63) 100%)' },
+  { id:'2', name:'Alex',   initials:'AJ', color:'linear-gradient(135deg, rgb(0,184,219) 0%, rgb(21,93,252) 100%)' },
+  { id:'3', name:'Jordan', initials:'JD', color:'linear-gradient(135deg, rgb(0,201,80) 0%, rgb(0,153,102) 100%)' },
+  { id:'4', name:'Taylor', initials:'TW', color:'linear-gradient(135deg, rgb(254,154,0) 0%, rgb(245,73,0) 100%)' },
+];
+
+const ADD_FRIENDS = [
+  { id:'3', name:'Jordan', initials:'JD', color:'linear-gradient(135deg, rgb(0,201,80) 0%, rgb(0,153,102) 100%)',     status:'online' },
+  { id:'4', name:'Taylor', initials:'TW', color:'linear-gradient(135deg, rgb(254,154,0) 0%, rgb(245,73,0) 100%)',     status:'online' },
+  { id:'5', name:'Morgan', initials:'MC', color:'linear-gradient(135deg, rgb(138,43,226) 0%, rgb(75,0,130) 100%)',    status:'away'   },
+  { id:'6', name:'Casey',  initials:'CL', color:'linear-gradient(135deg, rgb(255,105,180) 0%, rgb(255,20,147) 100%)', status:'online' },
+];
+
+const BG_DARK = 'linear-gradient(152.661deg, rgb(15,23,43) 0%, rgb(29,41,61) 50%, rgb(15,23,43) 100%)';
+
+const BOOK_SVG_PATH = "M12.625 74.25C11.5089 74.25 10.4385 73.8154 9.64926 73.0418C8.86004 72.2682 8.41667 71.219 8.41667 70.125V16.5C8.41667 15.406 8.86004 14.3568 9.64926 13.5832C10.4385 12.8096 11.5089 12.375 12.625 12.375H33.6667C38.1311 12.375 42.4128 14.1134 45.5696 17.2077C48.7265 20.3021 50.5 24.4989 50.5 28.875C50.5 24.4989 52.2735 20.3021 55.4304 17.2077C58.5872 14.1134 62.8689 12.375 67.3333 12.375H88.375C89.4911 12.375 90.5615 12.8096 91.3507 13.5832C92.14 14.3568 92.5833 15.406 92.5833 16.5V70.125C92.5833 71.219 92.14 72.2682 91.3507 73.0418C90.5615 73.8154 89.4911 74.25 88.375 74.25H63.125C59.7766 74.25 56.5654 75.5538 54.1978 77.8746C51.8301 80.1953 50.5 83.3429 50.5 86.625C50.5 83.3429 49.1699 80.1953 46.8022 77.8746C44.4346 75.5538 41.2234 74.25 37.875 74.25H12.625Z";
+const BACK_SVG_PATH = "M28.7422 4.37793L11.5996 21.5215L10.7461 22.375H49.5V27.625H10.7461L28.7422 45.6211L25.0029 49.2959L0.707031 25L25.0029 0.703125L28.7422 4.37793Z";
+const STUDY_ICON_PATH = "M6 36C5.46957 36 4.96086 35.7893 4.58579 35.4142C4.21071 35.0391 4 34.5304 4 34V8C4 7.46957 4.21071 6.96086 4.58579 6.58579C4.96086 6.21071 5.46957 6 6 6H16C18.1217 6 20.1566 6.84285 21.6569 8.34315C23.1571 9.84344 24 11.8783 24 14C24 11.8783 24.8429 9.84344 26.3431 8.34315C27.8434 6.84285 29.8783 6 32 6H42C42.5304 6 43.0391 6.21071 43.4142 6.58579C43.7893 6.96086 44 7.46957 44 8V34C44 34.5304 43.7893 35.0391 43.4142 35.4142C43.0391 35.7893 42.5304 36 42 36H30C28.4087 36 26.8826 36.6321 25.7574 37.7574C24.6321 38.8826 24 40.4087 24 42C24 40.4087 23.3679 38.8826 22.2426 37.7574C21.1174 36.6321 19.5913 36 18 36H6Z";
+const GAMING_ICON_PATH = "M34.64 10H13.36C11.3806 10.0005 9.47157 10.7348 8.00207 12.0609C6.53256 13.3871 5.60689 15.211 5.404 17.18C5.392 17.284 5.384 17.382 5.37 17.484C5.208 18.832 4 28.912 4 32C4 33.5913 4.63214 35.1174 5.75736 36.2426C6.88258 37.3679 8.4087 38 10 38C12 38 13 37 14 36L16.828 33.172C17.578 32.4218 18.5952 32.0002 19.656 32H28.344C29.4048 32.0002 30.422 32.4218 31.172 33.172L34 36C35 37 36 38 38 38C39.5913 38 41.1174 37.3679 42.2426 36.2426C43.3679 35.1174 44 33.5913 44 32C44 28.91 42.792 18.832 42.63 17.484C42.616 17.384 42.608 17.284 42.596 17.182C42.3936 15.2126 41.4681 13.3883 39.9986 12.0617C38.529 10.7351 36.6198 10.0005 34.64 10Z";
+const CHALLENGE_PATH1 = "M37.314 42.97C36.564 43.7203 35.5466 44.1419 34.4857 44.1421C33.4248 44.1423 32.4073 43.721 31.657 42.971C30.9067 42.221 30.4851 41.2036 30.4849 40.1427C30.4847 39.0818 30.906 38.0643 31.656 37.314L28.122 40.85C27.3717 41.6003 26.3541 42.0218 25.293 42.0218C24.2319 42.0218 23.2143 41.6003 22.464 40.85C21.7137 40.0997 21.2922 39.0821 21.2922 38.021C21.2922 36.9599 21.7137 35.9423 22.464 35.192L35.192 22.464C35.9423 21.7137 36.9599 21.2922 38.021 21.2922C39.0821 21.2922 40.0997 21.7137 40.85 22.464C41.6003 23.2143 42.0218 24.2319 42.0218 25.293C42.0218 26.3541 41.6003 27.3717 40.85 28.122L37.314 31.656C38.0643 30.906 39.0818 30.4847 40.1427 30.4849C41.2036 30.4851 42.221 30.9067 42.971 31.657C43.721 32.4073 44.1423 33.4248 44.1421 34.4857C44.1419 35.5466 43.7203 36.564 42.97 37.314L37.314 42.97Z";
+const CHALLENGE_PATH2 = "M12.808 25.536C12.0577 26.2863 11.0401 26.7078 9.979 26.7078C8.91792 26.7078 7.9003 26.2863 7.15 25.536C6.3997 24.7857 5.97819 23.7681 5.97819 22.707C5.97819 21.6459 6.3997 20.6283 7.15 19.878L10.686 16.344C10.3145 16.7154 9.87347 17.0099 9.38812 17.2109C8.90277 17.4118 8.38259 17.5152 7.85729 17.5151C6.7964 17.5149 5.77903 17.0933 5.029 16.343C4.65762 15.9715 4.36305 15.5305 4.16212 15.0451C3.96118 14.5598 3.8578 14.0396 3.8579 13.5143C3.85808 12.4534 4.2797 11.436 5.03 10.686L10.686 5.03C11.436 4.2797 12.4534 3.85808 13.5143 3.8579C14.0396 3.8578 14.5598 3.96118 15.0451 4.16212C15.5305 4.36305 15.9715 4.65762 16.343 5.029C16.7145 5.40038 17.0092 5.84129 17.2103 6.32657C17.4115 6.81185 17.515 7.33199 17.5151 7.85729C17.5152 8.38259 17.4118 8.90277 17.2109 9.38812C17.0099 9.87347 16.7154 10.3145 16.344 10.686L19.878 7.15C20.6283 6.3997 21.6459 5.97819 22.707 5.97819C23.7681 5.97819 24.7857 6.3997 25.536 7.15C26.2863 7.9003 26.7078 8.91792 26.7078 9.979C26.7078 11.0401 26.2863 12.0577 25.536 12.808L12.808 25.536Z";
+const THUMBS_PATH = "M12.5 4.9L11.6667 8.33333H16.525C16.7837 8.33333 17.0389 8.39358 17.2704 8.50929C17.5018 8.625 17.7031 8.79301 17.8583 9C18.0136 9.20699 18.1185 9.44729 18.1648 9.70186C18.2111 9.95643 18.1974 10.2183 18.125 10.4667L16.1833 17.1333C16.0824 17.4795 15.8718 17.7836 15.5833 18C15.2948 18.2164 14.944 18.3333 14.5833 18.3333H3.33333C2.89131 18.3333 2.46738 18.1577 2.15482 17.8452C1.84226 17.5326 1.66667 17.1087 1.66667 16.6667V10C1.66667 9.55797 1.84226 9.13405 2.15482 8.82149C2.46738 8.50893 2.89131 8.33333 3.33333 8.33333H5.63333C5.9434 8.33317 6.24728 8.24651 6.5108 8.0831C6.77431 7.91969 6.98702 7.68601 7.125 7.40833L10 1.66667C10.393 1.67153 10.7798 1.76514 11.1315 1.9405C11.4832 2.11585 11.7908 2.36842 12.0312 2.67934C12.2716 2.99025 12.4386 3.35147 12.5198 3.736C12.601 4.12054 12.5942 4.51845 12.5 4.9Z";
+
+/* ================================================================
+   HELPERS
+   ================================================================ */
+function fmtTime(s) {
+  const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+  return h+':'+pad(m)+':'+pad(sec);
+}
+function fmtBreak(s) { return Math.floor(s/60)+':'+pad(s%60); }
+function pad(n) { return String(n).padStart(2,'0'); }
+function fmtGoal() { return FL.goalHours+':'+pad(FL.goalMinutes)+':00'; }
+
+/* ================================================================
+   TOAST
+   ================================================================ */
+function showToast(msg, type='success') {
+  const c = document.getElementById('toast-container');
+  const t = document.createElement('div');
+  t.className = 'toast toast-'+type;
+  t.textContent = msg;
+  c.appendChild(t);
+  setTimeout(() => { t.style.animation='toastOut 0.3s ease forwards'; setTimeout(()=>t.remove(),300); }, 3000);
+}
+
+/* ================================================================
+   APP SWITCHING
+   ================================================================ */
+function switchApp(app) {
+  currentApp = app;
+  const wa = document.getElementById('widget-app');
+  const wf = document.getElementById('workflow-app');
+  const tw = document.getElementById('tab-widget');
+  if (app==='widget') {
+    wa.style.display='block'; wf.style.display='none';
+    tw.style.color='white'; tw.style.borderBottom='2px solid #6366f1';
+  } else {
+    wa.style.display='none'; wf.style.display='block';
+    tw.style.color='rgba(255,255,255,0.45)'; tw.style.borderBottom='2px solid transparent';
+  }
+}
+
+/* ================================================================
+   PHONE WIDGET — RENDER DISPATCHER
+   ================================================================ */
+function renderWidget() {
+  const c = document.getElementById('widget-app');
+  let html = '';
+  if (WS.page==='home')              html = wHome();
+  else if (WS.page==='changeStatus') html = wChangeStatus();
+  else if (WS.page==='calendar')     html = wCalendar();
+  else if (WS.page==='addActivity')  html = wAddActivity();
+  else if (WS.page==='sendPoll')     html = wSendPoll();
+  else if (WS.page==='pollResponses') html = wPollResponses();
+  else if (WS.page==='cameraRoll')   html = wCameraRoll();
+  else if (WS.page==='postConfirmation') html = wPostConfirmation();
+  else if (WS.page==='sendToFriends')    html = wSendToFriends();
+  if (WS.showProfileSettings) html += wProfileSettingsModal();
+  if (WS.showFriendProfile && WS.selectedFriend) html += wFriendProfileModal();
+  if (WS.showImagePicker) html += wImagePickerModal();
+  c.innerHTML = html;
+}
+
+function wNav(page) { WS.page=page; WS.showProfileSettings=false; WS.showFriendProfile=false; renderWidget(); }
+
+/* ---- STATUS HELPERS ---- */
+const STATUS_META = {
+  'online':         { label:'Online',              color:'#22c55e' },
+  'do-not-disturb': { label:'Do Not Disturb',      color:'#ef4444' },
+  'idle':           { label:'Idle',                color:'#eab308' },
+  'free-to-talk':   { label:'Free: Down to Talk!', color:'#60a5fa' },
+};
+function currentStatusMeta() { return STATUS_META[WS.selectedStatus] || STATUS_META['online']; }
+
+/* ---- HOME PAGE ---- */
+function wHome() {
+  const friendBg = ['#22c55e','#f97316','#7c3aed','#60a5fa','#ec4899'];
+  const statusColor = { online:'#22c55e', away:'#eab308', silent:'#ef4444' };
+
+  const friendsGrid = WS.friends.map((f,i) => {
+    const st = f.online ? 'online' : (i===2||i===4 ? 'away' : 'silent');
+    const slabel = st==='online'?'Online':st==='away'?'Away':'Silent';
+    return `
+    <button onclick="wOpenFriendProfile('${f.id}')" style="display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:none;padding:0;">
+      <div style="width:64px;height:64px;border-radius:50%;background:${friendBg[i%5]};display:flex;align-items:center;justify-content:center;color:white;font-weight:500;font-size:18px;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:transform 0.15s;"
+           onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+        ${f.initials}
+      </div>
+      <div style="text-align:center;">
+        <div style="color:white;font-size:14px;font-weight:500;">${f.name}</div>
+        <div style="display:flex;align-items:center;justify-content:center;gap:4px;margin-top:2px;">
+          <div style="width:6px;height:6px;border-radius:50%;background:${statusColor[st]};"></div>
+          <span style="color:#9ca3af;font-size:12px;">${slabel}</span>
+        </div>
+      </div>
+    </button>`;
+  }).join('');
+
+  return `
+  <div style="min-height:calc(100vh - 49px);background:#1a2332;display:flex;align-items:center;justify-content:center;padding:32px;">
+    <div style="width:100%;max-width:900px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+
+        <!-- Profile -->
+        <div style="background:#2d3a4d;border-radius:24px;padding:24px;border:1px solid rgba(107,114,128,0.3);">
+          <h2 style="color:white;font-size:20px;font-weight:500;margin:0 0 24px;text-align:center;">Hi Bob!</h2>
+          <div style="display:flex;justify-content:center;margin-bottom:24px;">
+            <div style="width:128px;height:128px;border-radius:50%;background:linear-gradient(to bottom right,#9ca3af,#d1d5db);display:flex;align-items:center;justify-content:center;position:relative;">
+              <svg width="80" height="80" viewBox="0 0 80 80" fill="none"><circle cx="40" cy="30" r="15" fill="white"/><path d="M20 60 C20 45,60 45,60 60 L60 70 L20 70 Z" fill="white"/></svg>
+              <div style="position:absolute;top:8px;right:8px;width:24px;height:24px;background:${currentStatusMeta().color};border-radius:50%;border:4px solid #2d3a4d;"></div>
+            </div>
+          </div>
+          <div style="text-align:center;margin-bottom:16px;">
+            <div style="color:#d1d5db;font-size:14px;margin-bottom:4px;">Status: ${currentStatusMeta().label}</div>
+            <div style="color:#9ca3af;font-size:14px;">Not in activity</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <button onclick="wNav('changeStatus')" style="width:100%;background:#3d4f68;color:white;border:none;border-radius:12px;height:44px;font-size:14px;font-weight:500;transition:background 0.15s;"
+              onmouseover="this.style.background='#4a5d7a'" onmouseout="this.style.background='#3d4f68'">Change Status</button>
+            <button onclick="wOpenProfileSettings()" style="width:100%;background:#3d4f68;color:white;border:none;border-radius:12px;height:44px;font-size:14px;font-weight:500;transition:background 0.15s;"
+              onmouseover="this.style.background='#4a5d7a'" onmouseout="this.style.background='#3d4f68'">View Profile</button>
+          </div>
+        </div>
+
+        <!-- Activities -->
+        <div style="background:#2d3a4d;border-radius:24px;padding:24px;border:1px solid rgba(107,114,128,0.3);">
+          <h2 style="color:white;font-size:20px;font-weight:500;margin:0 0 24px;text-align:center;">Let's Talk!</h2>
+          <div style="display:flex;flex-direction:column;gap:16px;">
+            <button onclick="launchActivityWorkflow()"
+              style="width:100%;height:56px;background:linear-gradient(to right,#3b82f6,#9333ea);color:white;border:none;border-radius:16px;font-size:16px;font-weight:500;box-shadow:0 10px 15px rgba(0,0,0,0.2);transition:filter 0.15s;"
+              onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter='brightness(1)'">Start Activity</button>
+            <button onclick="wNav('sendPoll')"
+              style="width:100%;height:56px;background:linear-gradient(to right,#f87171,#ec4899);color:white;border:none;border-radius:16px;font-size:16px;font-weight:500;box-shadow:0 10px 15px rgba(0,0,0,0.2);transition:filter 0.15s;"
+              onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter='brightness(1)'">Send Poll</button>
+            <button onclick="wNav('calendar')"
+              style="width:100%;height:56px;background:linear-gradient(to right,#c084fc,#f9a8d4);color:white;border:none;border-radius:16px;font-size:16px;font-weight:500;box-shadow:0 10px 15px rgba(0,0,0,0.2);transition:filter 0.15s;"
+              onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter='brightness(1)'">View Calendar</button>
+          </div>
+        </div>
+
+        <!-- Friends -->
+        <div style="background:#2d3a4d;border-radius:24px;padding:24px;border:1px solid rgba(107,114,128,0.3);">
+          <h2 style="color:white;font-size:20px;font-weight:500;margin:0 0 24px;text-align:center;">Connect!</h2>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+            ${friendsGrid}
+            <button style="display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:none;padding:0;">
+              <div style="width:64px;height:64px;border-radius:50%;border:2px dashed #4b5563;display:flex;align-items:center;justify-content:center;color:#6b7280;transition:all 0.15s;"
+                   onmouseover="this.style.borderColor='#6b7280';this.style.color='#9ca3af'" onmouseout="this.style.borderColor='#4b5563';this.style.color='#6b7280'">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </div>
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>`;
+}
+
+function wOpenProfileSettings() { WS.showProfileSettings=true; renderWidget(); }
+function wOpenFriendProfile(id) { WS.selectedFriend=WS.friends.find(f=>f.id===id); WS.showFriendProfile=true; renderWidget(); }
+function wCloseProfileSettings() { WS.showProfileSettings=false; renderWidget(); }
+function wCloseFriendProfile() { WS.showFriendProfile=false; WS.selectedFriend=null; renderWidget(); }
+
+/* ---- PROFILE SETTINGS MODAL ---- */
+function wProfileSettingsModal() {
+  return `
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;padding:16px;z-index:100;" class="anim-fade">
+    <div style="background:#1a2332;border-radius:24px;box-shadow:0 25px 50px rgba(0,0,0,0.5);width:100%;max-width:900px;border:1px solid rgba(107,114,128,0.3);">
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:16px;padding:24px;">
+        <!-- Left -->
+        <div style="background:#2d3a4d;border-radius:24px;padding:24px;border:1px solid rgba(107,114,128,0.3);position:relative;">
+          <button onclick="wCloseProfileSettings()" style="position:absolute;top:24px;left:24px;background:none;border:none;color:white;transition:color 0.15s;"
+            onmouseover="this.style.color='#d1d5db'" onmouseout="this.style.color='white'">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <div style="display:flex;justify-content:center;margin:48px 0 24px;">
+            <div style="width:128px;height:128px;border-radius:50%;background:linear-gradient(to bottom right,#9ca3af,#d1d5db);display:flex;align-items:center;justify-content:center;position:relative;">
+              <svg width="80" height="80" viewBox="0 0 80 80" fill="none"><circle cx="40" cy="30" r="15" fill="white"/><path d="M20 60 C20 45,60 45,60 60 L60 70 L20 70 Z" fill="white"/></svg>
+              <div style="position:absolute;top:8px;right:8px;width:24px;height:24px;background:${currentStatusMeta().color};border-radius:50%;border:4px solid #2d3a4d;"></div>
+            </div>
+          </div>
+          <h2 style="color:white;font-size:24px;font-weight:500;text-align:center;margin:0 0 8px;">Bob Smith</h2>
+          <div style="text-align:center;margin-bottom:4px;"><div style="color:#d1d5db;font-size:14px;">Status: ${currentStatusMeta().label}</div><div style="color:#9ca3af;font-size:14px;">Not in activity</div></div>
+          <div style="margin-top:32px;">
+            <button onclick="wCloseProfileSettings()" style="width:100%;background:#3d4f68;color:white;border:none;border-radius:12px;height:44px;font-size:14px;transition:background 0.15s;"
+              onmouseover="this.style.background='#4a5d7a'" onmouseout="this.style.background='#3d4f68'">Settings</button>
+          </div>
+        </div>
+        <!-- Right -->
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <div style="background:#2d3a4d;border-radius:16px;padding:24px;border:1px solid rgba(107,114,128,0.3);">
+            <div style="color:white;font-size:18px;">Phone Number: (XXX) XXX-XXXX</div>
+          </div>
+          <div style="background:#2d3a4d;border-radius:16px;padding:24px;border:1px solid rgba(107,114,128,0.3);">
+            <div style="color:white;font-size:18px;">Recent Activity: Study Session</div>
+          </div>
+          <div style="background:#2d3a4d;border-radius:16px;padding:24px;border:1px solid rgba(107,114,128,0.3);">
+            <h3 style="color:white;font-size:16px;font-weight:500;margin:0 0 16px;">Photo Album</h3>
+            <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;">
+              ${[1,2,3,4,5].map(()=>`<div style="aspect-ratio:16/9;background:black;border-radius:8px;display:flex;align-items:center;justify-content:center;"><span style="color:#4b5563;font-size:20px;">↓</span></div>`).join('')}
+              <button style="aspect-ratio:16/9;background:#3d4f68;border:2px dashed #4b5563;border-radius:8px;display:flex;align-items:center;justify-content:center;transition:background 0.15s;"
+                onmouseover="this.style.background='#4a5d7a'" onmouseout="this.style.background='#3d4f68'">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+            </div>
+          </div>
+          <div style="display:flex;gap:16px;">
+            <button style="flex:1;height:56px;background:linear-gradient(to right,#3b82f6,#9333ea);color:white;border:none;border-radius:16px;font-size:16px;font-weight:500;box-shadow:0 10px 15px rgba(0,0,0,0.2);">Sync Contacts</button>
+            <button style="flex:1;height:56px;background:linear-gradient(to right,#c084fc,#f9a8d4);color:white;border:none;border-radius:16px;font-size:16px;font-weight:500;box-shadow:0 10px 15px rgba(0,0,0,0.2);">Add Event</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---- FRIEND PROFILE MODAL ---- */
+function wFriendProfileModal() {
+  const f = WS.selectedFriend;
+  const gradMap = { JD:'linear-gradient(to br,#22c55e,#16a34a)', TW:'linear-gradient(to br,#f97316,#ea580c)', MC:'linear-gradient(to br,#7c3aed,#6d28d9)', AJ:'linear-gradient(to br,#60a5fa,#3b82f6)', SM:'linear-gradient(to br,#ec4899,#db2777)' };
+  const gr = gradMap[f.initials]||'linear-gradient(to br,#6b7280,#4b5563)';
+  const acts = ['Shared photos with you','Completed poll about dinner','Joined calendar event'];
+  return `
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;padding:16px;z-index:100;" class="anim-fade">
+    <div style="background:#1a2332;border-radius:24px;box-shadow:0 25px 50px rgba(0,0,0,0.5);width:100%;max-width:900px;border:1px solid rgba(107,114,128,0.3);">
+      <div style="display:grid;grid-template-columns:1fr 2fr;gap:16px;padding:24px;">
+        <!-- Left -->
+        <div style="background:#2d3a4d;border-radius:24px;padding:24px;border:1px solid rgba(107,114,128,0.3);position:relative;">
+          <button onclick="wCloseFriendProfile()" style="position:absolute;top:24px;left:24px;background:none;border:none;color:white;transition:color 0.15s;"
+            onmouseover="this.style.color='#d1d5db'" onmouseout="this.style.color='white'">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <div style="display:flex;justify-content:center;margin:48px 0 24px;">
+            <div style="width:128px;height:128px;border-radius:50%;background:${gr};display:flex;align-items:center;justify-content:center;color:white;font-size:40px;font-weight:500;position:relative;box-shadow:0 10px 20px rgba(0,0,0,0.3);">
+              ${f.initials}
+              ${f.online?`<div style="position:absolute;top:8px;right:8px;width:24px;height:24px;background:#22c55e;border-radius:50%;border:4px solid #2d3a4d;"></div>`:''}
+            </div>
+          </div>
+          <h2 style="color:white;font-size:24px;font-weight:500;text-align:center;margin:0 0 8px;">${f.name}</h2>
+          <div style="text-align:center;"><div style="color:#d1d5db;font-size:14px;">Status: ${f.online?'Online':'Offline'}</div><div style="color:#9ca3af;font-size:14px;">Not in activity</div></div>
+        </div>
+        <!-- Right -->
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <div style="background:#2d3a4d;border-radius:16px;padding:24px;border:1px solid rgba(107,114,128,0.3);">
+            <div style="color:white;font-size:18px;">Phone Number: ${f.phone||'(XXX) XXX-XXXX'}</div>
+          </div>
+          <div style="background:#2d3a4d;border-radius:16px;padding:24px;border:1px solid rgba(107,114,128,0.3);">
+            <h3 style="color:white;font-size:16px;font-weight:500;margin:0 0 12px;">Recent Activity:</h3>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              ${acts.map(a=>`<div style="display:flex;align-items:center;gap:8px;color:#d1d5db;font-size:14px;"><div style="width:6px;height:6px;border-radius:50%;background:#6b7280;flex-shrink:0;"></div>${a}</div>`).join('')}
+            </div>
+          </div>
+          <div style="background:#2d3a4d;border-radius:16px;padding:24px;border:1px solid rgba(107,114,128,0.3);">
+            <h3 style="color:white;font-size:16px;font-weight:500;margin:0 0 16px;">Shared Photos</h3>
+            <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;">
+              ${[1,2,3].map(()=>`<div style="aspect-ratio:16/9;background:black;border-radius:8px;display:flex;align-items:center;justify-content:center;"><span style="color:#4b5563;font-size:20px;">↓</span></div>`).join('')}
+            </div>
+          </div>
+          <div style="display:flex;gap:16px;">
+            <button style="flex:1;height:56px;background:linear-gradient(to right,#3b82f6,#9333ea);color:white;border:none;border-radius:16px;font-size:16px;font-weight:500;box-shadow:0 10px 15px rgba(0,0,0,0.2);">Send Message</button>
+            <button style="flex:1;height:56px;background:linear-gradient(to right,#c084fc,#f9a8d4);color:white;border:none;border-radius:16px;font-size:16px;font-weight:500;box-shadow:0 10px 15px rgba(0,0,0,0.2);">Start Activity</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ---- CHANGE STATUS ---- */
+function wChangeStatus() {
+  const opts = [
+    { id:'online',         label:'Online',              color:'#22c55e', bg:'rgba(34,197,94,0.1)',    border:'#22c55e',
+      icon:`<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>` },
+    { id:'do-not-disturb', label:'Do Not Disturb',      color:'#ef4444', bg:'rgba(239,68,68,0.1)',   border:'#ef4444',
+      icon:`<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>` },
+    { id:'idle',           label:'Idle',                color:'#eab308', bg:'rgba(234,179,8,0.1)',   border:'#eab308',
+      icon:`<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>` },
+    { id:'free-to-talk',   label:'Free: Down to Talk!', color:'#60a5fa', bg:'rgba(96,165,250,0.1)',  border:'#60a5fa',
+      icon:`<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>` },
+  ];
+  return `
+  <div style="min-height:calc(100vh - 49px);background:#1a2332;display:flex;align-items:center;justify-content:center;padding:32px;">
+    <div style="width:100%;max-width:600px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:32px;">
+        <button onclick="wNav('home')" style="background:none;border:none;color:white;transition:color 0.15s;"
+          onmouseover="this.style.color='#d1d5db'" onmouseout="this.style.color='white'">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h1 style="color:white;font-size:36px;font-weight:700;margin:0;">STATUS</h1>
+        <div style="width:40px;"></div>
+      </div>
+      <div style="background:#2d3a4d;border-radius:24px;padding:32px;border:1px solid rgba(107,114,128,0.3);">
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          ${opts.map(o => {
+            const sel = WS.selectedStatus===o.id;
+            return `
+            <button onclick="wSelectStatus('${o.id}')"
+              style="width:100%;display:flex;align-items:center;gap:24px;padding:24px;border-radius:16px;border:2px solid ${sel?o.border:'#4b5563'};background:${sel?o.bg:'#3d4f68'};text-align:left;transition:all 0.15s;"
+              onmouseover="if('${o.id}'!=='${WS.selectedStatus}'){this.style.borderColor='#6b7280'}"
+              onmouseout="if('${o.id}'!=='${WS.selectedStatus}'){this.style.borderColor='#4b5563'}">
+              <div style="flex-shrink:0;color:${sel?o.color:'#9ca3af'}">${o.icon}</div>
+              <div style="flex:1;"><span style="color:white;font-size:24px;font-weight:500;">${o.label}</span></div>
+              <div style="width:24px;height:24px;border-radius:50%;border:2px solid ${sel?o.color:'#6b7280'};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                ${sel?`<div style="width:12px;height:12px;border-radius:50%;background:${o.color};"></div>`:''}
+              </div>
+            </button>`;
+          }).join('')}
+        </div>
+        <button onclick="wSaveStatus()"
+          style="width:100%;height:64px;margin-top:32px;background:linear-gradient(to right,#3b82f6,#9333ea);color:white;border:none;border-radius:16px;font-size:20px;font-weight:600;box-shadow:0 10px 15px rgba(0,0,0,0.2);transition:filter 0.15s;"
+          onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter='brightness(1)'">Save Status</button>
+      </div>
+    </div>
+  </div>`;
+}
+function wSelectStatus(s) { WS.selectedStatus=s; renderWidget(); }
+function wSaveStatus() {
+  const labels = { online:'Online','do-not-disturb':'Do Not Disturb', idle:'Idle','free-to-talk':'Free: Down to Talk!' };
+  showToast('Status changed to: '+labels[WS.selectedStatus],'success');
+  wNav('home');
+}
+
+/* ---- CALENDAR ---- */
+const CAL_DAY_NAMES = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+function wOrdinal(n) { return n===1?'1st':n===2?'2nd':n===3?'3rd':n+'th'; }
+
+function wCalendar() {
+  const weekDays = ['S','M','T','W','T','F','S'];
+  const d = WS.calendarDate;
+  const dayName = CAL_DAY_NAMES[d - 1]; // day 1=Sun, 2=Mon … 7=Sat
+  const acts = WS.calendarActivities[d] || [];
+  return `
+  <div style="min-height:calc(100vh - 49px);background:#1a2332;color:white;padding:24px;">
+    <div style="max-width:1200px;margin:0 auto;">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:32px;">
+        <button onclick="wNav('home')" style="background:none;border:none;color:white;transition:color 0.15s;"
+          onmouseover="this.style.color='#d1d5db'" onmouseout="this.style.color='white'">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h1 style="margin:0;font-size:28px;font-weight:700;">FEBRUARY</h1>
+      </div>
+      <div style="display:grid;grid-template-columns:350px 1fr;gap:24px;">
+        <!-- Mini Calendar -->
+        <div style="background:#2d3a4d;border-radius:24px;padding:24px;border:1px solid rgba(107,114,128,0.3);height:fit-content;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;">
+            <button style="background:none;border:none;color:white;transition:color 0.15s;" onmouseover="this.style.color='#d1d5db'" onmouseout="this.style.color='white'">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <div style="font-size:16px;font-weight:500;">Feb 1 — Feb 7</div>
+            <button style="background:none;border:none;color:white;transition:color 0.15s;" onmouseover="this.style.color='#d1d5db'" onmouseout="this.style.color='white'">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;">
+            ${weekDays.map(dy=>`<div style="text-align:center;font-size:14px;color:#9ca3af;margin-bottom:8px;">${dy}</div>`).join('')}
+            ${[1,2,3,4,5,6,7].map(dy => {
+              const sel = dy===WS.calendarDate;
+              const count = (WS.calendarActivities[dy]||[]).length;
+              return `<button onclick="wSetDate(${dy})"
+                style="aspect-ratio:1;border-radius:12px;border:none;font-size:18px;font-weight:500;transition:background 0.15s;${sel?'background:#7c3aed;color:white;':'background:transparent;color:#d1d5db;'};position:relative;"
+                onmouseover="if(${dy}!==${WS.calendarDate}){this.style.background='#3d4f68'}"
+                onmouseout="if(${dy}!==${WS.calendarDate}){this.style.background='transparent'}">${dy}${count&&!sel?`<span style="position:absolute;bottom:3px;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;background:#7c3aed;display:block;"></span>`:''}
+              </button>`;
+            }).join('')}
+          </div>
+        </div>
+        <!-- Events -->
+        <div style="display:flex;flex-direction:column;gap:24px;">
+          <h2 style="margin:0;font-size:22px;font-weight:600;">${dayName}, Feb ${wOrdinal(d)}</h2>
+          <div style="display:flex;flex-direction:column;gap:16px;">
+            ${acts.length ? acts.map(a=>`
+            <div style="background:${a.color};border-radius:24px;padding:24px;">
+              <div style="display:flex;align-items:flex-start;gap:12px;">
+                <div style="width:12px;height:12px;background:white;border-radius:50%;margin-top:6px;flex-shrink:0;"></div>
+                <div><h3 style="color:white;font-size:20px;font-weight:600;margin:0 0 8px;">${a.title}</h3>
+                <p style="color:rgba(255,255,255,0.9);font-size:16px;margin:0;">${a.time} · ${a.participants.join(' · ')}</p></div>
+              </div>
+            </div>`).join('') : `<div style="background:#2d3a4d;border-radius:24px;padding:24px;text-align:center;border:1px dashed rgba(107,114,128,0.4);">
+              <p style="color:#6b7280;font-size:16px;margin:0;">No activities scheduled — add one below!</p>
+            </div>`}
+            <button onclick="wNav('addActivity')"
+              style="width:100%;background:linear-gradient(to right,#7c3aed,#db2777);color:white;border:none;border-radius:24px;padding:24px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:20px;font-weight:600;transition:filter 0.15s;"
+              onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter='brightness(1)'">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add Activity
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+function wSetDate(d) { WS.calendarDate=d; renderWidget(); }
+
+/* ---- ADD ACTIVITY ---- */
+function wAddActivity() {
+  const { title, description, fromTime, toTime, selectedFriends } = WS.addActivity;
+  const friends = [
+    { id:'1', name:'Jordan', initials:'JD', online:true,  color:'linear-gradient(to br,#a855f7,#ec4899)' },
+    { id:'2', name:'Taylor', initials:'TW', online:true,  color:'linear-gradient(to br,#3b82f6,#06b6d4)' },
+    { id:'3', name:'Morgan', initials:'MC', online:false, color:'linear-gradient(to br,#f97316,#ef4444)' },
+    { id:'4', name:'Alex',   initials:'AJ', online:false, color:'linear-gradient(to br,#22c55e,#10b981)' },
+    { id:'5', name:'Sarah',  initials:'SM', online:false, color:'linear-gradient(to br,#eab308,#f97316)' },
+  ];
+  const timeOpts = ['8:00 AM','9:00 AM','10:00 AM','11:00 AM','12:00 PM','1:00 PM','2:00 PM','3:00 PM','4:00 PM','5:00 PM','6:00 PM','7:00 PM','8:00 PM','9:00 PM','10:00 PM'];
+  const toOpts   = ['9:00 AM','10:00 AM','11:00 AM','12:00 PM','1:00 PM','2:00 PM','3:00 PM','4:00 PM','5:00 PM','6:00 PM','7:00 PM','8:00 PM','9:00 PM','10:00 PM','11:00 PM'];
+  return `
+  <div style="min-height:calc(100vh - 49px);background:#1a2332;color:white;padding:24px;">
+    <div style="max-width:1200px;margin:0 auto;">
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:32px;">
+        <button onclick="wNav('calendar')" style="background:none;border:none;color:white;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <h1 style="margin:0;font-size:28px;font-weight:700;">Add Activity</h1>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:24px;">
+        <!-- Title & Description -->
+        <div style="background:#2d3a4d;border-radius:24px;padding:24px;border:1px solid rgba(107,114,128,0.3);display:flex;flex-direction:column;gap:24px;">
+          <div>
+            <label style="display:block;font-size:16px;font-weight:500;margin-bottom:12px;">Title</label>
+            <input type="text" id="act-title" value="${title.replace(/"/g,'&quot;')}" oninput="WS.addActivity.title=this.value"
+              placeholder="Enter activity title..."
+              style="width:100%;background:#3d4f68;color:white;border:none;border-radius:12px;padding:12px 16px;font-size:16px;outline:none;box-sizing:border-box;"
+              onfocus="this.style.boxShadow='0 0 0 2px #7c3aed'" onblur="this.style.boxShadow='none'"/>
+          </div>
+          <div>
+            <label style="display:block;font-size:16px;font-weight:500;margin-bottom:12px;">Description</label>
+            <textarea rows="6" id="act-desc" oninput="WS.addActivity.description=this.value"
+              placeholder="Add a description..."
+              style="width:100%;background:#3d4f68;color:white;border:none;border-radius:12px;padding:12px 16px;font-size:16px;outline:none;resize:none;box-sizing:border-box;font-family:inherit;"
+              onfocus="this.style.boxShadow='0 0 0 2px #7c3aed'" onblur="this.style.boxShadow='none'">${description}</textarea>
+          </div>
+        </div>
+        <!-- Time -->
+        <div style="background:#2d3a4d;border-radius:24px;padding:24px;border:1px solid rgba(107,114,128,0.3);display:flex;flex-direction:column;gap:24px;">
+          <div>
+            <label style="display:block;font-size:16px;font-weight:500;margin-bottom:12px;">Time</label>
+            <div style="display:flex;flex-direction:column;gap:16px;">
+              <div>
+                <label style="display:block;font-size:14px;color:#9ca3af;margin-bottom:8px;">From</label>
+                <select onchange="WS.addActivity.fromTime=this.value" style="width:100%;background:#3d4f68;color:white;border:none;border-radius:12px;padding:12px 16px;font-size:16px;outline:none;box-sizing:border-box;">
+                  ${timeOpts.map(t=>`<option${t===fromTime?' selected':''}>${t}</option>`).join('')}
+                </select>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:center;"><div style="width:32px;height:1px;background:#4b5563;"></div></div>
+              <div>
+                <label style="display:block;font-size:14px;color:#9ca3af;margin-bottom:8px;">To</label>
+                <select onchange="WS.addActivity.toTime=this.value" style="width:100%;background:#3d4f68;color:white;border:none;border-radius:12px;padding:12px 16px;font-size:16px;outline:none;box-sizing:border-box;">
+                  ${toOpts.map(t=>`<option${t===toTime?' selected':''}>${t}</option>`).join('')}
+                </select>
+              </div>
+            </div>
+          </div>
+          <button onclick="wSaveActivity()"
+            style="width:100%;height:56px;background:linear-gradient(to right,#7c3aed,#db2777);color:white;border:none;border-radius:16px;font-size:18px;font-weight:600;box-shadow:0 10px 15px rgba(0,0,0,0.2);transition:filter 0.15s;"
+            onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter='brightness(1)'">Save Activity</button>
+        </div>
+        <!-- Add Friends -->
+        <div style="background:#2d3a4d;border-radius:24px;padding:24px;border:1px solid rgba(107,114,128,0.3);">
+          <div style="margin-bottom:24px;">
+            <h3 style="color:white;font-size:16px;font-weight:500;margin:0 0 4px;">Add Friends</h3>
+            <p style="color:#9ca3af;font-size:12px;margin:0;">${selectedFriends.length} selected</p>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            ${friends.map(f => {
+              const sel = selectedFriends.includes(f.id);
+              return `
+              <button onclick="wToggleFriend('${f.id}')"
+                style="width:100%;display:flex;align-items:center;gap:16px;padding:12px;border-radius:12px;border:2px solid ${sel?'#22c55e':'transparent'};background:${sel?'rgba(34,197,94,0.2)':'#3d4f68'};text-align:left;transition:all 0.15s;"
+                onmouseover="if(!${sel}){this.style.borderColor='#4b5563'}" onmouseout="if(!${sel}){this.style.borderColor='transparent'}">
+                <div style="position:relative;flex-shrink:0;">
+                  <div style="width:48px;height:48px;border-radius:50%;background:${f.color};display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:14px;">${f.initials}</div>
+                  ${f.online?`<div style="position:absolute;bottom:0;right:0;width:12px;height:12px;background:#22c55e;border-radius:50%;border:2px solid #2d3a4d;"></div>`:''}
+                </div>
+                <div style="flex:1;">
+                  <p style="color:white;font-size:16px;font-weight:500;margin:0 0 2px;">${f.name}</p>
+                  <p style="color:#9ca3af;font-size:12px;margin:0;">${f.online?'Online':'Offline'}</p>
+                </div>
+                <div style="width:24px;height:24px;border-radius:50%;border:2px solid ${sel?'#22c55e':'#6b7280'};background:${sel?'#22c55e':'transparent'};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                  ${sel?`<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>`:''}
+                </div>
+              </button>`;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+function wToggleFriend(id) {
+  const s = WS.addActivity.selectedFriends;
+  WS.addActivity.selectedFriends = s.includes(id) ? s.filter(x=>x!==id) : [...s,id];
+  renderWidget();
+}
+function wSaveActivity() {
+  const t = document.getElementById('act-title');
+  if (t) WS.addActivity.title = t.value;
+  if (!WS.addActivity.title.trim()) { showToast('Please enter an activity title','error'); return; }
+
+  const actFriends = [
+    { id:'1', name:'Jordan' }, { id:'2', name:'Taylor' }, { id:'3', name:'Morgan' },
+    { id:'4', name:'Alex'   }, { id:'5', name:'Sarah'  },
+  ];
+  const participants = WS.addActivity.selectedFriends.length
+    ? WS.addActivity.selectedFriends.map(id => { const f=actFriends.find(x=>x.id===id); return f?f.name:id; })
+    : ['Just you'];
+
+  const gradients = [
+    'linear-gradient(to right,#3b82f6,#9333ea)',
+    'linear-gradient(to right,#ec4899,#db2777)',
+    'linear-gradient(to right,#7c3aed,#db2777)',
+    'linear-gradient(to right,#f97316,#ef4444)',
+    'linear-gradient(to right,#22c55e,#10b981)',
+  ];
+  const color = gradients[Math.floor(Math.random() * gradients.length)];
+
+  const newAct = {
+    title: WS.addActivity.title.trim(),
+    time: `${WS.addActivity.fromTime} — ${WS.addActivity.toTime}`,
+    participants,
+    color,
+  };
+
+  const day = WS.calendarDate;
+  if (!WS.calendarActivities[day]) WS.calendarActivities[day] = [];
+  WS.calendarActivities[day].push(newAct);
+
+  WS.addActivity = { title:'', description:'', fromTime:'9:00 AM', toTime:'12:00 PM', selectedFriends:[] };
+  showToast(`Activity added to Feb ${wOrdinal(day)}!`, 'success');
+  wNav('calendar');
+}
+
+function launchActivityWorkflow() {
+  FL.page = 'activitySelect';
+  FL.showEndDialog = false;
+  FL.selectedFriendId = null;
+  switchApp('workflow');
+  renderWorkflow();
+}
+
+/* ================================================================
+   SHARED ACTIVITY WORKFLOW — TIMERS
+   ================================================================ */
+function startSessionTimer() {
+  if (FL.timerInterval) clearInterval(FL.timerInterval);
+  FL.timerInterval = setInterval(() => {
+    if (!FL.session.isActive || FL.session.isPaused || !FL.session.startTime) return;
+    FL.session.elapsedTime = Math.floor((Date.now() - FL.session.startTime) / 1000);
+    const el = document.getElementById('sess-timer');
+    if (el) el.textContent = fmtTime(FL.session.elapsedTime);
+    const pb = document.getElementById('sess-progress');
+    if (pb) pb.style.width = Math.min((FL.session.elapsedTime/FL.session.goalLength)*100,100)+'%';
+  }, 1000);
+}
+
+function startBreakTimer() {
+  if (FL.breakTimerInterval) clearInterval(FL.breakTimerInterval);
+  FL.breakTimerInterval = setInterval(() => {
+    if (!FL.breakTimer.isTimerActive || FL.breakTimer.timeRemaining<=0) return;
+    FL.breakTimer.timeRemaining--;
+    const el = document.getElementById('break-timer-text');
+    if (el) el.textContent = fmtBreak(FL.breakTimer.timeRemaining);
+    const circle = document.getElementById('break-circle');
+    if (circle && FL.breakTimer.selectedDuration) {
+      const pct = (FL.breakTimer.selectedDuration - FL.breakTimer.timeRemaining) / FL.breakTimer.selectedDuration;
+      const c = 2*Math.PI*100;
+      circle.style.strokeDasharray = (pct*c)+' '+c;
+    }
+    if (FL.breakTimer.timeRemaining <= 0) {
+      clearInterval(FL.breakTimerInterval);
+      FL.breakTimer.isTimerActive = false;
+      FL.breakTimer.showAlert = true;
+      renderWorkflow();
+    }
+  }, 1000);
+}
+
+/* ================================================================
+   SHARED ACTIVITY WORKFLOW — RENDER DISPATCHER
+   ================================================================ */
+function renderWorkflow() {
+  const c = document.getElementById('workflow-app');
+  if (FL.page==='activitySelect') c.innerHTML = flActivitySelect();
+  else if (FL.page==='sessionSetup') c.innerHTML = flSessionSetup();
+  else if (FL.page==='session')      c.innerHTML = flSession();
+  else if (FL.page==='break')        c.innerHTML = flBreak();
+  else if (FL.page==='summary')      c.innerHTML = flSummary();
+  else if (FL.page==='addFriends')   c.innerHTML = flAddFriends();
+
+  if (FL.page==='session' && FL.session.isActive && !FL.session.isPaused) startSessionTimer();
+  if (FL.page==='break' && FL.breakTimer.isTimerActive) startBreakTimer();
+}
+function flNav(page) { FL.page=page; FL.showEndDialog=false; FL.selectedFriendId=null; renderWorkflow(); }
+
+/* ---- ACTIVITY SELECT ---- */
+function flActivitySelect() {
+  const cards = [
+    { type:'study',     name:'Study Session', gradient:'linear-gradient(135deg,rgb(43,127,255) 0%,rgb(152,16,250) 100%)',
+      icon:`<svg fill="none" viewBox="0 0 48 48" width="48" height="48"><path d="M24 14V42" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/><path d="${STUDY_ICON_PATH}" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/></svg>` },
+    { type:'gaming',    name:'Gaming',        gradient:'linear-gradient(135deg,rgb(0,201,80) 0%,rgb(0,150,137) 100%)',
+      icon:`<svg fill="none" viewBox="0 0 48 48" width="48" height="48"><path d="M12 22H20" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/><path d="M16 18V26" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/><path d="M30 24H30.02" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/><path d="M36 20H36.02" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/><path d="${GAMING_ICON_PATH}" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/></svg>` },
+    { type:'challenge', name:'Challenge',     gradient:'linear-gradient(135deg,rgb(255,105,0) 0%,rgb(231,0,11) 100%)',
+      icon:`<svg fill="none" viewBox="0 0 48 48" width="48" height="48"><path d="M28.8 28.8L19.2 19.2" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/><path d="${CHALLENGE_PATH1}" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/><path d="M43 43L40.2 40.2" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/><path d="M7.8 7.8L5 5" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/><path d="${CHALLENGE_PATH2}" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/></svg>` },
+  ];
+  return `
+  <div style="min-height:calc(100vh - 49px);display:flex;align-items:center;justify-content:center;background:${BG_DARK};">
+    <div style="width:1000px;">
+      <div style="display:flex;align-items:center;justify-content:center;height:58px;margin-bottom:0;position:relative;">
+        <button onclick="switchApp('widget')" style="position:absolute;left:0;background:none;border:none;color:rgba(255,255,255,0.6);font-size:14px;font-weight:500;display:flex;align-items:center;gap:6px;transition:color 0.15s;padding:0;"
+          onmouseover="this.style.color='white'" onmouseout="this.style.color='rgba(255,255,255,0.6)'">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+          Back
+        </button>
+        <p style="color:white;font-size:48px;font-weight:500;margin:0;letter-spacing:-0.35px;">START ACTIVITY</p>
+      </div>
+      <div style="display:flex;gap:60px;align-items:center;justify-content:center;height:381px;">
+        ${cards.map(card => `
+        <button onclick="flSelectActivity('${card.type}','${encodeURIComponent(card.name)}','${encodeURIComponent(card.gradient)}')"
+          style="background:rgba(255,255,255,0.1);height:260px;border:none;border-radius:24px;width:258px;position:relative;outline:1px solid rgba(255,255,255,0.2);transition:transform 0.15s;"
+          onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'"
+          onmousedown="this.style.transform='scale(0.95)'" onmouseup="this.style.transform='scale(1)'">
+          <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;padding:33px;">
+            <div style="width:96px;height:96px;border-radius:16px;background:${card.gradient};display:flex;align-items:center;justify-content:center;box-shadow:0 10px 15px rgba(0,0,0,0.2);">${card.icon}</div>
+            <p style="color:white;font-size:20px;font-weight:500;margin:0;">${card.name}</p>
+          </div>
+        </button>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+function flSelectActivity(type, nameEnc, gradEnc) {
+  FL.session.activityType = type;
+  FL.session.activityName = decodeURIComponent(nameEnc);
+  FL.session.activityGradient = decodeURIComponent(gradEnc);
+  flNav('sessionSetup');
+}
+
+/* ---- SESSION SETUP ---- */
+function flSessionSetup() {
+  const { session } = FL;
+  return `
+  <div style="min-height:calc(100vh - 49px);display:flex;align-items:center;justify-content:center;background:${BG_DARK};">
+    <div style="position:relative;width:1000px;min-height:517px;display:flex;align-items:center;">
+      <div style="position:relative;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);height:467px;width:948px;margin:25px auto;border-radius:24px;overflow:visible;">
+
+        <!-- Back -->
+        <button onclick="flNav('activitySelect')" style="position:absolute;left:39px;top:43px;width:75px;height:75px;background:none;border:none;overflow:hidden;transition:transform 0.15s;"
+          onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+          <div style="position:absolute;inset:16.67%;"><svg width="100%" height="100%" fill="none" viewBox="0 0 50 50"><path d="${BACK_SVG_PATH}" fill="white" stroke="white"/></svg></div>
+        </button>
+
+        <!-- Title -->
+        <div style="position:absolute;display:flex;align-items:center;justify-content:center;left:245px;top:45px;width:660px;">
+          <p style="color:white;font-size:48px;font-weight:500;margin:0;white-space:nowrap;">Start ${session.activityName}</p>
+        </div>
+
+        <!-- Activity Icon -->
+        <div style="position:absolute;display:flex;align-items:center;justify-content:center;left:42px;top:177px;width:203px;height:165px;">
+          <div style="height:181px;width:203px;border-radius:24px;background:${session.activityGradient};display:flex;align-items:center;justify-content:center;box-shadow:0 20px 25px rgba(0,0,0,0.1);">
+            <svg height="99" width="101" fill="none" viewBox="0 0 101 99"><path d="M50.5 28.875V86.625" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/><path d="${BOOK_SVG_PATH}" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/></svg>
+          </div>
+        </div>
+
+        <!-- Goal Length -->
+        <div style="position:absolute;display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:10px 43px;left:298px;top:138px;width:600px;">
+          <p style="color:white;font-size:40px;font-weight:500;margin:0;white-space:nowrap;">Goal Length:</p>
+          <p id="goal-display" style="color:white;font-size:40px;font-weight:500;margin:0;white-space:nowrap;">${fmtGoal()}</p>
+          <div style="height:78px;width:50px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;">
+            <button onclick="flIncGoal()" style="width:45px;height:22px;background:none;border:none;transition:transform 0.15s;" onmousedown="this.style.transform='scale(0.8)'" onmouseup="this.style.transform='scale(1)'">
+              <svg width="45.7" height="22.7" fill="none" viewBox="0 0 45.7071 22.7071"><line stroke="white" x1="45.37" x2="22.37" y1="22.076" y2="1.076"/><line stroke="white" x1="0.354" x2="22.354" y1="22.354" y2="0.354"/></svg>
+            </button>
+            <button onclick="flDecGoal()" style="width:45px;height:22px;background:none;border:none;transform:rotate(180deg);transition:transform 0.15s;" onmousedown="this.style.transform='rotate(180deg) scale(0.8)'" onmouseup="this.style.transform='rotate(180deg) scale(1)'">
+              <svg width="45.7" height="22.7" fill="none" viewBox="0 0 45.7071 22.7071"><line stroke="white" x1="45.37" x2="22.37" y1="22.076" y2="1.076"/><line stroke="white" x1="0.354" x2="22.354" y1="22.354" y2="0.354"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Friends -->
+        <div style="position:absolute;left:383px;top:254px;width:413px;">
+          <div style="display:flex;gap:61px;align-items:center;justify-content:center;">
+            ${SETUP_FRIENDS.map(f => {
+              const inv = session.friends.some(x=>x.id===f.id);
+              return `
+              <div style="position:relative;width:56px;height:56px;flex-shrink:0;">
+                <button onclick="flToggleSetupFriend('${f.id}')"
+                  style="position:absolute;width:56px;height:56px;border-radius:50%;border:none;background:${f.color};display:flex;align-items:center;justify-content:center;box-shadow:0 10px 15px rgba(0,0,0,0.1);transition:transform 0.15s;"
+                  onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+                  <p style="color:white;font-size:16px;font-weight:500;margin:0;">${f.initials}</p>
+                </button>
+                <div style="position:absolute;left:50%;transform:translateX(-50%);top:60px;white-space:nowrap;">
+                  <p style="color:rgba(255,255,255,0.7);font-size:24px;font-weight:500;margin:0;line-height:16px;">${f.name}</p>
+                </div>
+                ${inv?`<div class="anim-scale" style="position:absolute;background:#2b7fff;display:flex;align-items:center;justify-content:center;left:40px;top:-4px;border-radius:50%;width:20px;height:20px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                  <svg width="12" height="12" fill="none" viewBox="0 0 12 12" style="transform:rotate(45deg)"><path d="M2.5 6H9.5" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M6 2.5V9.5" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/></svg>
+                </div>`:''}
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- Start Button -->
+        <div style="position:absolute;left:473px;top:375px;width:222px;">
+          <button onclick="flStartSession()"
+            style="background:linear-gradient(to right,#00c950,#009966);height:53px;border:none;border-radius:16px;box-shadow:0 20px 25px rgba(0,0,0,0.1);width:100%;transition:transform 0.15s;"
+            onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <p style="color:white;font-size:22px;font-weight:500;margin:0;text-align:center;">Start</p>
+          </button>
+        </div>
+
+      </div>
+    </div>
+  </div>`;
+}
+function flIncGoal() { if(FL.goalMinutes===45){FL.goalHours++;FL.goalMinutes=0;}else FL.goalMinutes+=15; const e=document.getElementById('goal-display'); if(e)e.textContent=fmtGoal(); }
+function flDecGoal() { if(FL.goalMinutes===0&&FL.goalHours>0){FL.goalHours--;FL.goalMinutes=45;}else if(FL.goalMinutes>0)FL.goalMinutes-=15; const e=document.getElementById('goal-display'); if(e)e.textContent=fmtGoal(); }
+function flToggleSetupFriend(id) {
+  const f = SETUP_FRIENDS.find(x=>x.id===id);
+  FL.session.friends = FL.session.friends.some(x=>x.id===id) ? FL.session.friends.filter(x=>x.id!==id) : [...FL.session.friends, f];
+  renderWorkflow();
+}
+function flStartSession() {
+  const total = FL.goalHours*3600 + FL.goalMinutes*60;
+  FL.session.goalLength = total||3600;
+  FL.session.isActive = true; FL.session.isPaused = false;
+  FL.session.startTime = Date.now(); FL.session.elapsedTime = 0;
+  flNav('session');
+}
+
+/* ---- ACTIVE SESSION ---- */
+function flSession() {
+  const { session } = FL;
+  const pct = Math.min((session.elapsedTime/session.goalLength)*100, 100);
+  const selFriend = session.friends.find(f=>f.id===FL.selectedFriendId);
+
+  const friendsHtml = session.friends.slice(0,2).map((f,i) => {
+    const fTime = i===0 ? Math.floor(session.elapsedTime*0.8) : Math.floor(session.elapsedTime*0.65);
+    const subj  = i===0 ? 'Math' : 'Biology';
+    return `
+    <div style="position:relative;width:56px;height:56px;flex-shrink:0;">
+      <button onclick="flOpenFriendModal('${f.id}')"
+        style="position:absolute;width:61.6px;height:61.6px;left:-2.8px;top:-2.8px;border-radius:50%;border:none;background:${f.color};display:flex;align-items:center;justify-content:center;box-shadow:0 10px 15px rgba(0,0,0,0.1);transition:transform 0.15s;"
+        onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+        <p style="color:white;font-size:16px;font-weight:500;margin:0;">${f.initials}</p>
+      </button>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:60px;text-align:center;">
+        <p style="color:white;font-size:18px;font-weight:500;margin:0;white-space:nowrap;">${f.name}</p>
+      </div>
+      <div style="position:absolute;left:50%;transform:translateX(-50%);top:92px;display:flex;flex-direction:column;align-items:center;gap:2px;">
+        <p style="color:white;font-size:15px;font-weight:500;margin:0;white-space:nowrap;">${fmtTime(fTime)}</p>
+        <div style="background:rgba(255,255,255,0.05);border-radius:6px;padding:2px 8px;"><p style="color:rgba(255,255,255,0.65);font-size:12px;margin:0;">${subj}</p></div>
+      </div>
+      ${f.hasLiked?`
+      <div class="anim-scale" style="position:absolute;background:rgba(0,201,80,0.2);display:flex;align-items:center;justify-content:center;left:45px;top:80px;border-radius:50%;width:32px;height:32px;">
+        <svg width="20" height="20" fill="none" viewBox="0 0 20 20">
+          <path d="M5.83333 8.33333V18.3333" fill="#05DF72" stroke="#05DF72" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.667"/>
+          <path d="${THUMBS_PATH}" fill="#05DF72" stroke="#05DF72" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.667"/>
+        </svg>
+      </div>`:''}
+    </div>`;
+  }).join('');
+
+  return `
+  <div style="min-height:calc(100vh - 49px);display:flex;align-items:center;justify-content:center;background:${BG_DARK};">
+    <div style="position:relative;width:1000px;min-height:517px;display:flex;align-items:center;">
+      <div style="position:relative;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);height:467px;width:948px;margin:25px auto;border-radius:24px;">
+
+        <!-- Activity Icon -->
+        <div style="position:absolute;display:flex;align-items:center;justify-content:center;left:42px;top:177px;width:203px;height:165px;">
+          <div style="height:181px;width:203px;border-radius:24px;background:${session.activityGradient};display:flex;align-items:center;justify-content:center;box-shadow:0 20px 25px rgba(0,0,0,0.1);">
+            <svg height="99" width="101" fill="none" viewBox="0 0 101 99"><path d="M50.5 28.875V86.625" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/><path d="${BOOK_SVG_PATH}" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/></svg>
+          </div>
+        </div>
+
+        <!-- Timer -->
+        <div style="position:absolute;display:flex;gap:2px;align-items:center;justify-content:center;left:338px;top:38px;width:519px;height:109px;">
+          <p id="sess-timer" style="color:white;font-size:48px;font-weight:300;margin:0;white-space:nowrap;font-variant-numeric:tabular-nums;">${fmtTime(session.elapsedTime)}</p>
+          <p style="color:rgba(255,255,255,0.4);font-size:40px;margin:0;padding:0 8px;">/</p>
+          <p style="color:rgba(255,255,255,0.6);font-size:48px;font-weight:300;margin:0;white-space:nowrap;">${fmtTime(session.goalLength)}</p>
+        </div>
+
+        <!-- Progress Bar -->
+        <div style="position:absolute;background:rgba(255,255,255,0.1);height:8px;left:320px;top:165px;border-radius:100px;width:572px;overflow:hidden;">
+          <div id="sess-progress" class="progress-bar" style="height:8px;background:${session.activityGradient};width:${pct}%;"></div>
+        </div>
+
+        <!-- Friends -->
+        <div style="position:absolute;left:377px;top:210px;width:413px;">
+          <div style="display:flex;gap:95px;align-items:center;justify-content:center;width:400px;">
+            ${friendsHtml}
+            <button onclick="flNav('addFriends')"
+              style="background:rgba(255,255,255,0.1);width:48px;height:48px;border:2px solid rgba(255,255,255,0.3);border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:transform 0.15s;"
+              onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+              <p style="color:rgba(255,255,255,0.5);font-size:24px;font-weight:500;margin:0;">+</p>
+            </button>
+          </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <div style="position:absolute;display:flex;gap:108px;left:362px;top:373px;width:487px;height:56px;">
+          <button onclick="flTakeBreak()" style="flex:1;background:rgba(255,255,255,0.1);border:none;height:56px;border-radius:16px;position:relative;transition:transform 0.15s;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <svg style="position:absolute;left:37px;top:18px;" width="20" height="20" fill="none" viewBox="0 0 20 20">
+              <path d="M8.33333 1.66667V3.33333" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.667"/>
+              <path d="M11.6667 1.66667V3.33333" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.667"/>
+              <path d="M13.3333 6.66667C13.5543 6.66667 13.7663 6.75446 13.9226 6.91074C14.0789 7.06703 14.1667 7.27899 14.1667 7.5V14.1667C14.1667 15.0507 13.8155 15.8986 13.1904 16.5237C12.5652 17.1488 11.7174 17.5 10.8333 17.5H5.83333C4.94928 17.5 4.10143 17.1488 3.47631 16.5237C2.85119 15.8986 2.5 15.0507 2.5 14.1667V7.5C2.5 7.27899 2.5878 7.06703 2.74408 6.91074C2.90036 6.75446 3.11232 6.66667 3.33333 6.66667H15C15.8841 6.66667 16.7319 7.01786 17.357 7.64298C17.9821 8.2681 18.3333 9.11595 18.3333 10C18.3333 10.8841 17.9821 11.7319 17.357 12.357C16.7319 12.9821 15.8841 13.3333 15 13.3333H14.1667" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.667"/>
+              <path d="M5 1.66667V3.33333" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.667"/>
+            </svg>
+            <p style="position:absolute;color:white;font-size:16px;font-weight:500;margin:0;left:50%;transform:translateX(-30%);top:16px;white-space:nowrap;">Take Break</p>
+          </button>
+          <button onclick="flShowEndDialog()" style="flex:1;background:rgba(251,44,54,0.2);border:none;height:56px;border-radius:16px;position:relative;transition:transform 0.15s;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <svg style="position:absolute;left:32px;top:18px;" width="20" height="20" fill="none" viewBox="0 0 20 20">
+              <path d="M15 5L5 15" stroke="#FF6467" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.667"/>
+              <path d="M5 5L15 15" stroke="#FF6467" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.667"/>
+            </svg>
+            <p style="position:absolute;color:#ff6467;font-size:16px;font-weight:500;margin:0;left:50%;transform:translateX(-25%);top:16px;white-space:nowrap;">End Session</p>
+          </button>
+        </div>
+
+      </div>
+
+      ${FL.showEndDialog ? flEndDialog() : ''}
+      ${selFriend ? flFriendModal(selFriend) : ''}
+    </div>
+  </div>`;
+}
+
+function flOpenFriendModal(id) { FL.selectedFriendId=id; renderWorkflow(); }
+function flCloseFriendModal() { FL.selectedFriendId=null; renderWorkflow(); startSessionTimer(); }
+function flTakeBreak() {
+  FL.session.isPaused=true; FL.session.breakCount++;
+  if(FL.timerInterval) clearInterval(FL.timerInterval);
+  flNav('break');
+}
+function flShowEndDialog() { FL.showEndDialog=true; renderWorkflow(); }
+
+function flEndDialog() {
+  const { session } = FL;
+  const pct = Math.min((session.elapsedTime/session.goalLength)*100,100);
+  return `
+  <div class="anim-fade" style="position:absolute;inset:0;border-radius:24px;overflow:hidden;z-index:10;background:${BG_DARK};">
+    <div style="position:absolute;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);height:467px;left:26px;top:25px;border-radius:24px;width:948px;">
+      <div style="position:absolute;display:flex;align-items:center;justify-content:center;left:42px;top:45px;width:863px;">
+        <p style="color:white;font-size:48px;font-weight:500;margin:0;white-space:nowrap;">End Session?</p>
+      </div>
+      <div style="position:absolute;display:flex;align-items:center;justify-content:center;left:42px;top:177px;width:203px;height:165px;">
+        <div style="height:181px;width:203px;border-radius:24px;background:${session.activityGradient};display:flex;align-items:center;justify-content:center;">
+          <svg height="99" width="101" fill="none" viewBox="0 0 101 99"><path d="M50.5 28.875V86.625" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/><path d="${BOOK_SVG_PATH}" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/></svg>
+        </div>
+      </div>
+      <div style="position:absolute;display:flex;gap:2px;align-items:center;justify-content:center;left:350px;top:122px;width:519px;height:109px;">
+        <p style="color:white;font-size:64px;font-weight:300;margin:0;white-space:nowrap;">${fmtTime(session.elapsedTime)}</p>
+        <p style="color:rgba(255,255,255,0.4);font-size:48px;margin:0;padding:0 8px;">/</p>
+        <p style="color:rgba(255,255,255,0.6);font-size:64px;font-weight:300;margin:0;white-space:nowrap;">${fmtTime(session.goalLength)}</p>
+      </div>
+      <div style="position:absolute;background:rgba(255,255,255,0.1);height:8px;left:320px;top:272px;border-radius:100px;width:572px;overflow:hidden;">
+        <div style="height:8px;background:${session.activityGradient};width:${pct}%;"></div>
+      </div>
+      <div style="position:absolute;display:flex;gap:123px;left:308px;top:328px;width:584px;height:82px;">
+        <button onclick="flCloseEndDialog()" style="flex:1;background:rgba(255,255,255,0.1);border:none;height:82px;border-radius:16px;transition:transform 0.15s;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+          <div style="display:flex;align-items:center;justify-content:center;gap:8px;height:100%;padding:16px 35px;">
+            <svg width="36" height="36" fill="none" viewBox="0 0 36 36"><path d="M4.5 18C4.5 20.67 5.29176 23.2801 6.77516 25.5002C8.25856 27.7203 10.367 29.4506 12.8338 30.4724C15.3006 31.4942 18.015 31.7615 20.6337 31.2406C23.2525 30.7197 25.6579 29.4339 27.5459 27.5459C29.4339 25.6579 30.7197 23.2525 31.2406 20.6337C31.7615 18.015 31.4942 15.3006 30.4724 12.8338C29.4506 10.367 27.7203 8.25856 25.5002 6.77516C23.2801 5.29176 20.67 4.5 18 4.5C14.2259 4.5142 10.6035 5.98684 7.89 8.61L4.5 12" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.667"/><path d="M4.5 4.5V12H12" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.667"/></svg>
+            <p style="color:white;font-size:22px;font-weight:500;margin:0;white-space:nowrap;">Keep Going</p>
+          </div>
+        </button>
+        <button onclick="flConfirmEnd()" style="flex:1;background:linear-gradient(to right,#00c950,#009966);border:none;height:82px;border-radius:16px;box-shadow:0 20px 25px rgba(0,0,0,0.1);transition:transform 0.15s;" onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+          <div style="display:flex;align-items:center;justify-content:center;gap:8px;height:100%;padding:16px 63px;">
+            <svg width="36" height="36" fill="none" viewBox="0 0 36 36"><path d="M30 9L13.5 25.5L6 18" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.667"/></svg>
+            <p style="color:white;font-size:22px;font-weight:500;margin:0;white-space:nowrap;">End</p>
+          </div>
+        </button>
+      </div>
+    </div>
+  </div>`;
+}
+function flCloseEndDialog() { FL.showEndDialog=false; renderWorkflow(); startSessionTimer(); }
+function flConfirmEnd() {
+  FL.session.isActive=false; FL.session.isPaused=true;
+  if(FL.timerInterval) clearInterval(FL.timerInterval);
+  flNav('summary');
+}
+
+function flFriendModal(f) {
+  return `
+  <div class="anim-fade" style="position:absolute;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:50;" onclick="flCloseFriendModal()">
+    <div onclick="event.stopPropagation()" class="anim-scale" style="background:rgba(255,255,255,0.15);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.3);border-radius:24px;padding:24px;width:700px;">
+      <div style="display:flex;gap:32px;align-items:center;">
+        <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;">
+          <div style="width:100px;height:100px;border-radius:50%;background:${f.color};display:flex;align-items:center;justify-content:center;box-shadow:0 20px 40px rgba(0,0,0,0.3);margin-bottom:16px;">
+            <p style="color:white;font-size:40px;font-weight:500;margin:0;">${f.initials}</p>
+          </div>
+          <p style="color:white;font-size:28px;font-weight:500;margin:0 0 8px;text-align:center;">${f.name}</p>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <div class="pulse-dot" style="width:10px;height:10px;border-radius:50%;background:#4ade80;"></div>
+            <p style="color:rgba(255,255,255,0.8);font-size:14px;margin:0;">Currently studying</p>
+          </div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;">
+          <div style="display:flex;gap:16px;margin-bottom:24px;">
+            <div style="background:rgba(255,255,255,0.1);border-radius:16px;padding:16px;flex:1;text-align:center;">
+              <p style="color:rgba(255,255,255,0.6);font-size:12px;margin:0 0 4px;">Session Time</p>
+              <p style="color:white;font-size:20px;font-weight:500;margin:0;">26:31</p>
+            </div>
+            <div style="background:rgba(255,255,255,0.1);border-radius:16px;padding:16px;flex:1;text-align:center;">
+              <p style="color:rgba(255,255,255,0.6);font-size:12px;margin:0 0 4px;">Current Activity</p>
+              <p style="color:white;font-size:20px;font-weight:500;margin:0;">Math</p>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:12px;">
+            <button onclick="flSendEncouragement('${f.id}')"
+              style="width:100%;background:linear-gradient(to right,#00c950,#009966);border:none;border-radius:16px;padding:14px;box-shadow:0 20px 25px rgba(0,0,0,0.2);transition:transform 0.15s;"
+              onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+              <p style="color:white;font-size:16px;font-weight:500;margin:0;text-align:center;">Send Encouragement 👍</p>
+            </button>
+            <button onclick="flCloseFriendModal()" style="width:100%;background:rgba(255,255,255,0.1);border:none;border-radius:16px;padding:12px;transition:transform 0.15s;" onmouseover="this.style.transform='scale(1.02)'" onmouseout="this.style.transform='scale(1)'">
+              <p style="color:rgba(255,255,255,0.8);font-size:14px;font-weight:500;margin:0;text-align:center;">Close</p>
+            </button>
+          </div>
+          <div style="margin-top:16px;text-align:center;">
+            <p style="color:rgba(255,255,255,0.5);font-size:13px;font-style:italic;margin:0;">"You're doing great! 💪"</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+function flSendEncouragement(id) {
+  FL.session.friends = FL.session.friends.map(f => f.id===id ? {...f,hasLiked:true} : f);
+  FL.selectedFriendId = null;
+  renderWorkflow();
+  startSessionTimer();
+  setTimeout(() => {
+    FL.session.friends = FL.session.friends.map(f => f.id===id ? {...f,hasLiked:false} : f);
+    if(FL.page==='session') renderWorkflow();
+  }, 2500);
+}
+
+/* ---- BREAK SCREEN ---- */
+function flBreak() {
+  const { breakTimer } = FL;
+  const durations = [{label:'5 min',value:300},{label:'10 min',value:600},{label:'15 min',value:900},{label:'20 min',value:1200}];
+  const pct = breakTimer.selectedDuration ? ((breakTimer.selectedDuration-breakTimer.timeRemaining)/breakTimer.selectedDuration)*100 : 0;
+  const circ = 2*Math.PI*100;
+  return `
+  <div style="min-height:calc(100vh - 49px);display:flex;align-items:center;justify-content:center;background:${BG_DARK};">
+    <div style="position:relative;width:1000px;min-height:517px;display:flex;align-items:center;">
+      <div style="position:relative;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);height:467px;width:948px;margin:25px auto;border-radius:24px;overflow:hidden;">
+        <!-- Title -->
+        <div style="position:absolute;display:flex;align-items:center;justify-content:center;left:42px;top:35px;width:863px;">
+          <p style="color:white;font-size:48px;font-weight:500;margin:0;white-space:nowrap;">Take a Break</p>
+        </div>
+
+        ${!breakTimer.isTimerActive && !breakTimer.showAlert ? `
+        <div class="anim-scale" style="position:absolute;display:flex;align-items:center;justify-content:center;left:50%;transform:translateX(-50%);top:100px;width:140px;height:140px;border-radius:24px;background:linear-gradient(to br,#fe9a00,#f54900);box-shadow:0 20px 25px rgba(0,0,0,0.1);">
+          <svg width="80" height="80" fill="none" viewBox="0 0 100 100">
+            <path d="M41.667 8.333V16.667" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/>
+            <path d="M58.333 8.333V16.667" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/>
+            <path d="M75 37.5H25C22.2386 37.5 20 39.7386 20 42.5V70.833C20 81.8791 28.9543 90.833 40 90.833H60C71.0457 90.833 80 81.8791 80 70.833V42.5C80 39.7386 77.7614 37.5 75 37.5Z" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/>
+            <path d="M80 50H87.5C90.2614 50 92.5 52.2386 92.5 55V58.333C92.5 61.0944 90.2614 63.333 87.5 63.333H80" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/>
+            <path d="M25 8.333V16.667" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/>
+          </svg>
+        </div>
+        <div style="position:absolute;left:50%;transform:translateX(-50%);top:255px;width:600px;text-align:center;">
+          <p style="color:rgba(255,255,255,0.7);font-size:18px;margin:0;">How long would you like to rest?</p>
+        </div>
+        <div style="position:absolute;left:50%;transform:translateX(-50%);top:295px;display:flex;gap:16px;white-space:nowrap;">
+          ${durations.map(d=>`
+          <button onclick="flSelectBreakDuration(${d.value})"
+            style="background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:16px;padding:16px 24px;transition:all 0.15s;"
+            onmouseover="this.style.background='rgba(255,255,255,0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'">
+            <p style="color:white;font-size:24px;font-weight:500;margin:0;">${d.label}</p>
+          </button>`).join('')}
+        </div>` : ''}
+
+        ${breakTimer.isTimerActive ? `
+        <div class="anim-scale" style="position:absolute;left:50%;transform:translateX(-50%);top:140px;width:220px;height:220px;">
+          <svg style="position:absolute;inset:0;transform:rotate(-90deg);" viewBox="0 0 220 220">
+            <circle cx="110" cy="110" r="100" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="8"/>
+            <circle id="break-circle" cx="110" cy="110" r="100" fill="none" stroke="url(#bGrad)" stroke-width="8" stroke-linecap="round"
+              style="stroke-dasharray:${(pct/100)*circ} ${circ};transition:stroke-dasharray 0.5s linear;"/>
+            <defs><linearGradient id="bGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#fe9a00"/><stop offset="100%" stop-color="#f54900"/></linearGradient></defs>
+          </svg>
+          <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;">
+            <p id="break-timer-text" style="color:white;font-size:56px;font-weight:300;margin:0;">${fmtBreak(breakTimer.timeRemaining)}</p>
+          </div>
+        </div>
+        <div style="position:absolute;left:50%;transform:translateX(-50%);top:405px;width:280px;">
+          <button onclick="flResumeFromBreak()"
+            style="background:linear-gradient(to right,#00c950,#009966);height:50px;width:100%;border:none;border-radius:16px;box-shadow:0 20px 25px rgba(0,0,0,0.1);transition:transform 0.15s;"
+            onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <p style="color:white;font-size:18px;font-weight:500;margin:0;text-align:center;">Resume Early</p>
+          </button>
+        </div>` : ''}
+
+        ${breakTimer.showAlert ? `
+        <div class="anim-fade" style="position:absolute;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:50;">
+          <div class="anim-scale" style="background:rgba(255,255,255,0.15);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,0.3);border-radius:32px;padding:40px;width:500px;text-align:center;">
+            <div style="display:flex;justify-content:center;margin-bottom:24px;">
+              <div style="width:120px;height:120px;border-radius:50%;background:linear-gradient(to br,#00c950,#009966);box-shadow:0 20px 40px rgba(0,201,80,0.4);display:flex;align-items:center;justify-content:center;">
+                <svg width="64" height="64" fill="none" viewBox="0 0 64 64"><path d="M10 32L26 48L54 16" stroke="white" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+            </div>
+            <p style="color:white;font-size:36px;font-weight:500;margin:0 0 12px;">Break's Over! 🎯</p>
+            <p style="color:rgba(255,255,255,0.8);font-size:18px;margin:0 0 32px;">Time to get back to it! You're doing great!</p>
+            <button onclick="flResumeFromBreak()"
+              style="width:100%;background:linear-gradient(to right,#00c950,#009966);border:none;border-radius:16px;padding:16px;box-shadow:0 20px 25px rgba(0,0,0,0.2);transition:filter 0.15s;"
+              onmouseover="this.style.filter='brightness(1.1)'" onmouseout="this.style.filter='brightness(1)'">
+              <p style="color:white;font-size:20px;font-weight:500;margin:0;">Resume Session</p>
+            </button>
+          </div>
+        </div>` : ''}
+
+      </div>
+    </div>
+  </div>`;
+}
+function flSelectBreakDuration(dur) {
+  FL.breakTimer.selectedDuration=dur; FL.breakTimer.timeRemaining=dur;
+  FL.breakTimer.isTimerActive=true; FL.breakTimer.showAlert=false;
+  renderWorkflow();
+}
+function flResumeFromBreak() {
+  if(FL.breakTimerInterval) clearInterval(FL.breakTimerInterval);
+  FL.breakTimer.isTimerActive=false; FL.breakTimer.showAlert=false;
+  FL.session.isPaused=false;
+  FL.session.startTime = Date.now() - (FL.session.elapsedTime*1000);
+  flNav('session');
+}
+
+/* ---- SESSION SUMMARY ---- */
+function flSummary() {
+  const { session } = FL;
+  const pct = Math.min(Math.round((session.elapsedTime/session.goalLength)*100),100);
+  const goalMet = session.elapsedTime >= session.goalLength;
+  const confettiColors = ['#2b7fff','#9810fa','#00c950','#fe9a00','#f63399'];
+  const confetti = goalMet ? Array.from({length:50},(_,i)=>{
+    const color=confettiColors[i%5], left=Math.random()*100, dur=2+Math.random()*2, delay=Math.random();
+    return `<div class="confetti-piece" style="background:${color};left:${left}%;animation-duration:${dur}s;animation-delay:${delay}s;"></div>`;
+  }).join('') : '';
+  return `
+  <div style="min-height:calc(100vh - 49px);display:flex;align-items:center;justify-content:center;background:${BG_DARK};position:relative;overflow:hidden;">
+    ${confetti}
+    <div style="position:relative;width:1000px;min-height:517px;display:flex;align-items:center;z-index:1;">
+      <div style="position:relative;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);height:467px;width:948px;margin:25px auto;border-radius:24px;overflow:hidden;">
+        <!-- Title -->
+        <div style="position:absolute;display:flex;align-items:center;justify-content:center;left:42px;top:30px;width:863px;">
+          <p style="color:white;font-size:48px;font-weight:500;margin:0;white-space:nowrap;">${goalMet?'🎉 Goal Achieved! 🎉':'Session Complete!'}</p>
+        </div>
+        <!-- Activity Icon -->
+        <div style="position:absolute;display:flex;align-items:center;justify-content:center;left:42px;top:120px;width:203px;height:165px;">
+          <div style="height:181px;width:203px;border-radius:24px;background:${session.activityGradient};display:flex;align-items:center;justify-content:center;box-shadow:0 20px 25px rgba(0,0,0,0.1);">
+            <svg height="99" width="101" fill="none" viewBox="0 0 101 99"><path d="M50.5 28.875V86.625" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/><path d="${BOOK_SVG_PATH}" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/></svg>
+          </div>
+        </div>
+        <!-- Stats -->
+        <div style="position:absolute;left:300px;top:120px;width:600px;">
+          <div style="background:rgba(255,255,255,0.08);border-radius:20px;padding:24px;border:1px solid rgba(255,255,255,0.1);">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:16px;">
+              <div>
+                <p style="color:rgba(255,255,255,0.6);font-size:16px;margin:0 0 8px;">Time Spent</p>
+                <p style="color:white;font-size:32px;font-weight:500;margin:0;">${fmtTime(session.elapsedTime)}</p>
+              </div>
+              <div>
+                <p style="color:rgba(255,255,255,0.6);font-size:16px;margin:0 0 8px;">Goal</p>
+                <p style="color:white;font-size:32px;font-weight:500;margin:0;">${fmtTime(session.goalLength)}</p>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+              <p style="color:rgba(255,255,255,0.6);font-size:14px;margin:0;">Completion</p>
+              <p style="color:white;font-size:18px;font-weight:500;margin:0;">${pct}%</p>
+            </div>
+            <div style="background:rgba(255,255,255,0.1);border-radius:100px;height:12px;overflow:hidden;">
+              <div class="progress-bar" style="height:100%;background:${session.activityGradient};width:${pct}%;"></div>
+            </div>
+          </div>
+        </div>
+        <!-- Return Button -->
+        <div style="position:absolute;left:300px;top:385px;width:600px;height:56px;">
+          <button onclick="flResetSession()"
+            style="width:100%;background:linear-gradient(to right,#2b7fff,#9810fa);border:none;border-radius:16px;padding:16px;box-shadow:0 20px 25px rgba(0,0,0,0.2);transition:transform 0.15s;"
+            onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
+            <p style="color:white;font-size:20px;font-weight:500;margin:0;text-align:center;">Return</p>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+function flResetSession() {
+  if(FL.timerInterval) clearInterval(FL.timerInterval);
+  if(FL.breakTimerInterval) clearInterval(FL.breakTimerInterval);
+  FL.session = { activityType:'study', activityName:'Study Session', activityGradient:'linear-gradient(138.279deg, rgb(43,127,255) 0%, rgb(152,16,250) 100%)', goalLength:3600, startTime:null, elapsedTime:0, isActive:false, isPaused:false, friends:[], breakCount:0 };
+  FL.goalHours=1; FL.goalMinutes=0;
+  FL.breakTimer = { selectedDuration:null, timeRemaining:0, isTimerActive:false, showAlert:false };
+  switchApp('widget');
+  renderWidget();
+}
+
+/* ---- ADD FRIENDS (during session) ---- */
+function flAddFriends() {
+  const statusColor = s => s==='online'?'#05DF72':s==='away'?'#FFC107':'#FF6467';
+  const statusText  = s => s==='online'?'Online':s==='away'?'Away':'Do Not Disturb';
+  return `
+  <div style="min-height:calc(100vh - 49px);display:flex;align-items:center;justify-content:center;background:${BG_DARK};">
+    <div style="position:relative;width:1000px;min-height:517px;display:flex;align-items:center;">
+      <div style="position:relative;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);height:467px;width:948px;margin:25px auto;border-radius:24px;overflow:visible;">
+        <!-- Back -->
+        <button onclick="flNav('session')" style="position:absolute;left:39px;top:43px;width:75px;height:75px;background:none;border:none;overflow:hidden;transition:transform 0.15s;"
+          onmouseover="this.style.transform='scale(1.1)'" onmouseout="this.style.transform='scale(1)'">
+          <div style="position:absolute;inset:16.67%;"><svg width="100%" height="100%" fill="none" viewBox="0 0 50 50"><path d="${BACK_SVG_PATH}" fill="white" stroke="white"/></svg></div>
+        </button>
+        <!-- Title -->
+        <div style="position:absolute;display:flex;align-items:center;justify-content:center;left:245px;top:45px;width:660px;">
+          <p style="color:white;font-size:32px;font-weight:500;margin:0;white-space:nowrap;">Add Friends</p>
+        </div>
+        <!-- Friends Grid -->
+        <div style="position:absolute;display:flex;align-items:center;justify-content:center;left:80px;top:200px;width:840px;">
+          <div style="display:flex;gap:50px;align-items:flex-start;padding:10px 20px 20px;">
+            ${ADD_FRIENDS.map((f,i) => {
+              const added = FL.session.friends.some(x=>x.id===f.id);
+              return `
+              <div style="position:relative;width:120px;height:140px;flex-shrink:0;">
+                <button onclick="flToggleAddFriend('${f.id}')"
+                  style="position:absolute;width:70px;height:70px;border-radius:50%;border:none;left:50%;transform:translateX(-50%);top:0;background:${f.color};display:flex;align-items:center;justify-content:center;box-shadow:0 10px 15px rgba(0,0,0,0.1);transition:transform 0.15s;"
+                  onmouseover="this.style.transform='translateX(-50%) scale(1.1)'" onmouseout="this.style.transform='translateX(-50%) scale(1)'">
+                  <p style="color:white;font-size:18px;font-weight:500;margin:0;">${f.initials}</p>
+                </button>
+                <div style="position:absolute;left:50%;transform:translateX(-50%);top:75px;display:flex;flex-direction:column;align-items:center;gap:4px;">
+                  <p style="color:rgba(255,255,255,0.7);font-size:24px;font-weight:500;margin:0;white-space:nowrap;line-height:1;">${f.name}</p>
+                  <div style="display:flex;align-items:center;gap:6px;">
+                    <div style="width:8px;height:8px;border-radius:50%;background:${statusColor(f.status)};"></div>
+                    <p style="color:rgba(255,255,255,0.5);font-size:14px;margin:0;white-space:nowrap;">${statusText(f.status)}</p>
+                  </div>
+                </div>
+                ${added?`
+                <div class="anim-scale" style="position:absolute;background:#2b7fff;display:flex;align-items:center;justify-content:center;left:50%;margin-left:25px;transform:translateX(-50%);border-radius:50%;width:22px;height:22px;top:-4px;box-shadow:0 4px 6px rgba(0,0,0,0.1);">
+                  <svg width="13" height="13" fill="none" viewBox="0 0 12 12" style="transform:rotate(45deg)"><path d="M2.5 6H9.5" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/><path d="M6 2.5V9.5" stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"/></svg>
+                </div>`:''}
+              </div>`;
+            }).join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+function flToggleAddFriend(id) {
+  const f = ADD_FRIENDS.find(x=>x.id===id);
+  FL.session.friends = FL.session.friends.some(x=>x.id===id)
+    ? FL.session.friends.filter(x=>x.id!==id)
+    : [...FL.session.friends, {id:f.id,name:f.name,initials:f.initials,color:f.color}];
+  renderWorkflow();
+}
+
+/* ================================================================
+   SEND POLL
+   ================================================================ */
+function wSendPoll() {
+  const { pollOptions, pollImage } = WS;
+
+  const optionsHtml = pollOptions.map((opt, i) => `
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="color:#cbd5e1;font-size:17px;flex-shrink:0;">•</span>
+      <input type="text" value="${opt.replace(/"/g,'&quot;')}" oninput="WS.pollOptions[${i}]=this.value"
+        placeholder="Option ${i+1}"
+        style="flex:1;background:#1e293b;border:1px solid #475569;border-radius:8px;padding:8px 12px;color:#cbd5e1;font-size:16px;outline:none;font-family:inherit;box-sizing:border-box;"
+        onfocus="this.style.borderColor='#64748b'" onblur="this.style.borderColor='#475569'"/>
+      ${pollOptions.length > 2 ? `
+        <button onclick="wDeletePollOption(${i})"
+          style="background:none;border:none;color:#94a3b8;padding:4px;font-size:15px;line-height:1;transition:color 0.15s;cursor:pointer;"
+          onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#94a3b8'">✕</button>
+      ` : '<div style="width:24px;flex-shrink:0;"></div>'}
+    </div>
+  `).join('');
+
+  const imageContent = pollImage
+    ? (pollImage.startsWith('http')
+        ? `<img src="${pollImage}" alt="Selected" style="width:100%;height:100%;object-fit:cover;border-radius:10px;display:block;pointer-events:none;"/>`
+        : `<div style="width:100%;height:100%;background:${pollImage};border-radius:10px;"></div>`)
+    : `<span style="color:#94a3b8;font-size:17px;font-weight:700;pointer-events:none;">+ Tap to Select Image</span>`;
+
+  return `
+  <div style="min-height:calc(100vh - 49px);background:linear-gradient(152deg,#0f172a 0%,#1d293d 50%,#0f172a 100%);display:flex;align-items:center;justify-content:center;padding:32px;">
+    <div style="background:#0f172a;border:8px solid #334155;border-radius:40px;padding:28px;width:100%;max-width:800px;height:400px;display:flex;gap:0;box-sizing:border-box;box-shadow:0 25px 50px rgba(0,0,0,0.6);">
+
+      <!-- Image Column -->
+      <div style="flex:1;padding-right:20px;display:flex;align-items:center;justify-content:center;">
+        <button onclick="wNav('cameraRoll')"
+          style="background:#1e293b;border:2px dashed #475569;border-radius:12px;width:100%;height:100%;display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;transition:border-color 0.15s;cursor:pointer;"
+          onmouseover="this.style.borderColor='#64748b'" onmouseout="this.style.borderColor='#475569'">
+          ${imageContent}
+        </button>
+      </div>
+
+      <!-- Options Column -->
+      <div style="flex:1;border-left:2px solid #1e293b;border-right:2px solid #1e293b;padding:0 20px;display:flex;flex-direction:column;">
+        <h2 style="color:#e2e8f0;font-size:19px;font-weight:700;margin:0 0 16px 0;">Options</h2>
+        <div style="flex:1;display:flex;flex-direction:column;gap:12px;margin-bottom:16px;overflow-y:auto;">
+          ${optionsHtml}
+        </div>
+        ${pollOptions.length < 5 ? `
+          <button onclick="wAddPollOption()"
+            style="background:linear-gradient(135deg,#fa957e,#d01566);border:none;border-radius:50%;width:48px;height:48px;display:flex;align-items:center;justify-content:center;color:white;font-size:24px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:opacity 0.15s;cursor:pointer;"
+            onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">+</button>
+        ` : ''}
+      </div>
+
+      <!-- Actions Column -->
+      <div style="width:190px;padding-left:20px;display:flex;flex-direction:column;justify-content:space-between;gap:12px;">
+        <button onclick="wNav('pollResponses')"
+          style="background:linear-gradient(135deg,#fa957e,#d01566);border:none;border-radius:12px;padding:12px 0;color:white;font-size:14px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:opacity 0.15s;cursor:pointer;"
+          onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Responses</button>
+        <button onclick="wSendPollPost()"
+          style="background:linear-gradient(135deg,#2b7fff,#06b6d4);border:none;border-radius:12px;padding:12px 0;color:white;font-size:15px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:opacity 0.15s;cursor:pointer;"
+          onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Post</button>
+        <button onclick="wSendPollSend()"
+          style="background:linear-gradient(135deg,#eab308,#f59e0b);border:none;border-radius:12px;padding:12px 0;color:#451a03;font-size:15px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:opacity 0.15s;cursor:pointer;"
+          onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Send</button>
+        <button onclick="wNav('home')"
+          style="background:#475569;border:none;border-radius:12px;padding:12px 0;color:white;font-size:16px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:background 0.15s;cursor:pointer;"
+          onmouseover="this.style.background='#5a6678'" onmouseout="this.style.background='#475569'">Back</button>
+      </div>
+
+    </div>
+  </div>`;
+}
+
+function wAddPollOption() {
+  if (WS.pollOptions.length < 5) { WS.pollOptions = [...WS.pollOptions, '']; renderWidget(); }
+}
+function wDeletePollOption(i) {
+  if (WS.pollOptions.length > 2) { WS.pollOptions = WS.pollOptions.filter((_,idx)=>idx!==i); renderWidget(); }
+}
+function wSendPollPost() {
+  const filled = WS.pollOptions.filter(o=>o.trim()).length;
+  if (filled < 2) { showToast('Please fill in at least 2 options','error'); return; }
+  wNav('postConfirmation');
+}
+function wSendPollSend() {
+  const filled = WS.pollOptions.filter(o=>o.trim()).length;
+  if (filled < 2) { showToast('Please fill in at least 2 options','error'); return; }
+  WS.pollSendSelectedFriends = [];
+  wNav('sendToFriends');
+}
+
+/* ---- POLL RESPONSES ---- */
+function wPollResponses() {
+  const pollsHtml = WS.pollResponses.map(poll => `
+    <div style="background:#1e293b;border-radius:16px;padding:24px;box-shadow:0 4px 12px rgba(0,0,0,0.3);">
+      <h3 style="color:white;font-size:18px;font-weight:500;margin:0 0 16px;">${poll.question}</h3>
+      <div style="height:32px;background:#0f172a;border-radius:8px;overflow:hidden;">
+        <div style="height:100%;background:${poll.color};width:${poll.percentage}%;display:flex;align-items:center;justify-content:flex-end;padding-right:12px;transition:width 0.5s ease;">
+          <span style="color:white;font-size:16px;font-weight:700;">${poll.percentage}%</span>
+        </div>
+      </div>
+    </div>
+  `).join('');
+
+  return `
+  <div style="min-height:calc(100vh - 49px);background:linear-gradient(152deg,#0f172a 0%,#1d293d 50%,#0f172a 100%);display:flex;align-items:center;justify-content:center;padding:32px;">
+    <div style="background:#0f172a;border:8px solid #334155;border-radius:40px;padding:28px;width:100%;max-width:800px;box-shadow:0 25px 50px rgba(0,0,0,0.6);box-sizing:border-box;">
+
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:32px;">
+        <h1 style="color:white;font-size:28px;font-weight:700;margin:0;">Previous Poll Responses</h1>
+        <button onclick="wNav('sendPoll')"
+          style="background:#475569;border:none;border-radius:12px;padding:10px 24px;color:white;font-size:14px;font-weight:500;transition:background 0.15s;cursor:pointer;"
+          onmouseover="this.style.background='#5a6678'" onmouseout="this.style.background='#475569'">Back</button>
+      </div>
+
+      <!-- Poll Results -->
+      <div style="display:flex;flex-direction:column;gap:24px;">
+        ${pollsHtml}
+      </div>
+
+      <!-- Create New Poll -->
+      <div style="display:flex;justify-content:center;margin-top:32px;">
+        <button onclick="wNav('sendPoll')"
+          style="background:linear-gradient(135deg,#fa957e,#d01566);border:none;border-radius:12px;padding:12px 32px;color:white;font-size:16px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:opacity 0.15s;cursor:pointer;"
+          onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Create New Poll</button>
+      </div>
+
+    </div>
+  </div>`;
+}
+
+/* ---- IMAGE PICKER MODAL ---- */
+function wImagePickerModal() {
+  const gradients = [
+    'linear-gradient(135deg,#667eea 0%,#764ba2 100%)',
+    'linear-gradient(135deg,#f093fb 0%,#f5576c 100%)',
+    'linear-gradient(135deg,#4facfe 0%,#00f2fe 100%)',
+    'linear-gradient(135deg,#43e97b 0%,#38f9d7 100%)',
+    'linear-gradient(135deg,#fa709a 0%,#fee140 100%)',
+    'linear-gradient(135deg,#a18cd1 0%,#fbc2eb 100%)',
+  ];
+  const swatches = gradients.map(g => `
+    <button onclick="wSelectPollImage('${encodeURIComponent(g)}')"
+      style="aspect-ratio:1;border-radius:12px;border:3px solid transparent;background:${g};transition:all 0.15s;cursor:pointer;"
+      onmouseover="this.style.borderColor='white';this.style.transform='scale(1.06)'"
+      onmouseout="this.style.borderColor='transparent';this.style.transform='scale(1)'">
+    </button>
+  `).join('');
+
+  return `
+  <div class="anim-fade" style="position:fixed;inset:0;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;z-index:100;padding:16px;" onclick="WS.showImagePicker=false;renderWidget()">
+    <div onclick="event.stopPropagation()" class="anim-scale" style="background:#1e293b;border:2px solid #334155;border-radius:24px;padding:32px;width:420px;box-shadow:0 25px 50px rgba(0,0,0,0.5);">
+      <h2 style="color:white;font-size:22px;font-weight:700;margin:0 0 24px;text-align:center;">Select an Image</h2>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px;">
+        ${swatches}
+      </div>
+      <button onclick="WS.showImagePicker=false;renderWidget()"
+        style="width:100%;background:#475569;border:none;border-radius:12px;padding:12px;color:white;font-size:16px;font-weight:500;transition:background 0.15s;cursor:pointer;"
+        onmouseover="this.style.background='#5a6678'" onmouseout="this.style.background='#475569'">Cancel</button>
+    </div>
+  </div>`;
+}
+function wSelectPollImage(enc) {
+  WS.pollImage = decodeURIComponent(enc);
+  WS.showImagePicker = false;
+  renderWidget();
+}
+
+/* ================================================================
+   CAMERA ROLL
+   ================================================================ */
+const CAMERA_ROLL_PHOTOS = [
+  'https://images.unsplash.com/photo-1705254613735-1abb457f8a60?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjb2xvcmZ1bCUyMGFic3RyYWN0JTIwYXJ0fGVufDF8fHx8MTc3MzA2ODYzMHww&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1732808460864-b8e5eb489a52?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxzdW5zZXQlMjBsYW5kc2NhcGUlMjBuYXR1cmV8ZW58MXx8fHwxNzczMDAxNDE3fDA&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1695067439031-f59068994fae?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBhcmNoaXRlY3R1cmUlMjBidWlsZGluZ3xlbnwxfHx8fDE3NzI5Nzg3NjN8MA&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1643316408393-9328a1e973ed?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjb2ZmZWUlMjBjYWZlJTIwbGF0dGV8ZW58MXx8fHwxNzczMDI1MzU0fDA&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1569832724830-0b4ab7b52ab2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxvY2VhbiUyMGJlYWNoJTIwd2F2ZXN8ZW58MXx8fHwxNzczMDg4MDM5fDA&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1614022837662-e74b0b53dcf3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmb3Jlc3QlMjB0cmVlcyUyMG5hdHVyZXxlbnwxfHx8fDE3NzMwNTM4NjJ8MA&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1732644144489-b1974816d3c0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjaXR5JTIwbGlnaHRzJTIwbmlnaHR8ZW58MXx8fHwxNzczMDIwNDMzfDA&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1620649214867-d0f1661f0d64?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmb29kJTIwYnJlYWtmYXN0JTIwaGVhbHRoeXxlbnwxfHx8fDE3NzMwODQwMDN8MA&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1636280703520-2bff23d567eb?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb3VudGFpbiUyMGxhbmRzY2FwZSUyMHBlYWtzfGVufDF8fHx8MTc3MzA5NTA2M3ww&ixlib=rb-4.1.0&q=80&w=400',
+  'https://images.unsplash.com/photo-1725274999686-4035dc6f473c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmbG93ZXJzJTIwZ2FyZGVuJTIwYmxvb218ZW58MXx8fHwxNzczMDk1MDY0fDA&ixlib=rb-4.1.0&q=80&w=400',
+];
+
+function wCameraRoll() {
+  const sel = WS.pollCameraRollSelected;
+  const photosHtml = CAMERA_ROLL_PHOTOS.map((url, i) => {
+    const isSel = sel === i;
+    return `
+    <button onclick="WS.pollCameraRollSelected=${i};renderWidget()"
+      style="aspect-ratio:1;background:#1e293b;border:2px solid ${isSel?'#ec4899':'#475569'};border-radius:12px;overflow:hidden;position:relative;transition:all 0.15s;cursor:pointer;padding:0;${isSel?'box-shadow:0 0 0 2px #ec4899;':''}"
+      onmouseover="if(${i}!==WS.pollCameraRollSelected){this.style.borderColor='#64748b'}"
+      onmouseout="if(${i}!==WS.pollCameraRollSelected){this.style.borderColor='#475569'}">
+      <img src="${url}" alt="Photo ${i+1}" style="width:100%;height:100%;object-fit:cover;display:block;"/>
+      ${isSel ? `
+        <div style="position:absolute;inset:0;background:rgba(236,72,153,0.2);display:flex;align-items:center;justify-content:center;">
+          <div style="width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#fa957e,#d01566);display:flex;align-items:center;justify-content:center;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+        </div>` : ''}
+    </button>`;
+  }).join('');
+
+  return `
+  <div style="min-height:calc(100vh - 49px);background:linear-gradient(152deg,#0f172a 0%,#1d293d 50%,#0f172a 100%);display:flex;align-items:center;justify-content:center;padding:32px;" class="anim-fade">
+    <div style="background:#0f172a;border:8px solid #334155;border-radius:40px;padding:28px;width:100%;max-width:800px;box-shadow:0 25px 50px rgba(0,0,0,0.6);box-sizing:border-box;">
+
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;">
+        <h1 style="color:white;font-size:28px;font-weight:700;margin:0;">Camera Roll</h1>
+        <button onclick="wNav('sendPoll')"
+          style="background:#475569;border:none;border-radius:12px;padding:10px 24px;color:white;font-size:14px;font-weight:500;transition:background 0.15s;cursor:pointer;"
+          onmouseover="this.style.background='#5a6678'" onmouseout="this.style.background='#475569'">Back</button>
+      </div>
+
+      <!-- Photo Grid -->
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;">
+        ${photosHtml}
+      </div>
+
+      <!-- Use Photo Button -->
+      ${sel !== null ? `
+      <div style="display:flex;justify-content:center;margin-top:16px;">
+        <button onclick="wConfirmCameraPhoto()"
+          style="background:linear-gradient(135deg,#fa957e,#d01566);border:none;border-radius:12px;padding:12px 32px;color:white;font-size:16px;font-weight:700;box-shadow:0 4px 12px rgba(0,0,0,0.3);transition:opacity 0.15s;cursor:pointer;"
+          onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Use Selected Photo</button>
+      </div>` : ''}
+
+    </div>
+  </div>`;
+}
+
+function wConfirmCameraPhoto() {
+  if (WS.pollCameraRollSelected !== null) {
+    WS.pollImage = CAMERA_ROLL_PHOTOS[WS.pollCameraRollSelected];
+    WS.pollCameraRollSelected = null;
+  }
+  wNav('sendPoll');
+}
+
+/* ================================================================
+   POST CONFIRMATION
+   ================================================================ */
+function wPostConfirmation() {
+  return `
+  <div style="min-height:calc(100vh - 49px);background:linear-gradient(152deg,#0f172a 0%,#1d293d 50%,#0f172a 100%);display:flex;align-items:center;justify-content:center;padding:32px;" class="anim-scale">
+    <div style="background:#0f172a;border:8px solid #334155;border-radius:40px;padding:48px;width:100%;max-width:800px;height:400px;display:flex;flex-direction:column;align-items:center;justify-content:center;box-shadow:0 25px 50px rgba(0,0,0,0.6);box-sizing:border-box;">
+
+      <h1 style="color:white;font-size:32px;font-weight:700;text-align:center;margin:0 0 48px;">Are you sure you want to post?</h1>
+
+      <div style="display:flex;gap:24px;">
+        <button onclick="wConfirmPost()"
+          style="background:linear-gradient(135deg,#fa957e,#d01566);border:none;border-radius:16px;padding:16px 48px;color:white;font-size:20px;font-weight:700;box-shadow:0 8px 20px rgba(0,0,0,0.3);transition:opacity 0.15s;cursor:pointer;min-width:140px;"
+          onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Yes</button>
+        <button onclick="wNav('sendPoll')"
+          style="background:#475569;border:none;border-radius:16px;padding:16px 48px;color:white;font-size:20px;font-weight:700;box-shadow:0 8px 20px rgba(0,0,0,0.3);transition:background 0.15s;cursor:pointer;min-width:140px;"
+          onmouseover="this.style.background='#5a6678'" onmouseout="this.style.background='#475569'">Back</button>
+      </div>
+
+    </div>
+  </div>`;
+}
+
+function wConfirmPost() {
+  WS.pollSendSelectedFriends = [];
+  wNav('sendToFriends');
+}
+
+/* ================================================================
+   SEND TO FRIENDS
+   ================================================================ */
+const POLL_FRIENDS = [
+  { id:'1', name:'Jordan', initials:'JD', gradient:'linear-gradient(135deg,#00c950,#009966)' },
+  { id:'2', name:'Taylor', initials:'TW', gradient:'linear-gradient(135deg,#fe9a00,#f54900)' },
+  { id:'3', name:'Alex',   initials:'AJ', gradient:'linear-gradient(135deg,#00b8db,#155dfc)' },
+  { id:'4', name:'Morgan', initials:'MC', gradient:'linear-gradient(135deg,#8a2be2,#4b0082)' },
+  { id:'5', name:'Sarah',  initials:'SM', gradient:'linear-gradient(135deg,#f6339a,#ec003f)' },
+];
+
+function wSendToFriends() {
+  const selected = WS.pollSendSelectedFriends;
+
+  const friendsHtml = POLL_FRIENDS.map(f => {
+    const isSel = selected.includes(f.id);
+    return `
+    <button onclick="wTogglePollFriend('${f.id}')"
+      style="display:flex;flex-direction:column;align-items:center;gap:8px;background:none;border:none;padding:0;cursor:pointer;position:relative;">
+      <div style="position:relative;">
+        <div style="width:80px;height:80px;border-radius:50%;background:${f.gradient};display:flex;align-items:center;justify-content:center;color:white;font-size:24px;font-weight:700;box-shadow:0 8px 20px rgba(0,0,0,0.3);transition:transform 0.15s;${isSel?'transform:scale(1.08);':''}"
+          onmouseover="this.style.transform='scale(1.08)'" onmouseout="this.style.transform='${isSel?'scale(1.08)':'scale(1)'}'">
+          ${f.initials}
+        </div>
+        ${isSel ? `
+        <div style="position:absolute;top:-4px;left:64px;width:22px;height:22px;border-radius:50%;background:#2b7fff;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 8px rgba(0,0,0,0.3);">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+            <line stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.625" x1="6.5" x2="6.5" y1="2.708" y2="10.292" transform="rotate(45 6.5 6.5)"/>
+            <line stroke="white" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.625" x1="2.708" x2="10.292" y1="6.5" y2="6.5" transform="rotate(45 6.5 6.5)"/>
+          </svg>
+        </div>` : ''}
+      </div>
+      <span style="color:rgba(255,255,255,0.7);font-size:16px;font-weight:500;">${f.name}</span>
+    </button>`;
+  }).join('');
+
+  return `
+  <div style="min-height:calc(100vh - 49px);background:linear-gradient(152deg,#0f172a 0%,#1d293d 50%,#0f172a 100%);display:flex;align-items:center;justify-content:center;padding:32px;" class="anim-fade">
+    <div style="background:#0f172a;border:8px solid #334155;border-radius:40px;padding:28px;width:100%;max-width:800px;height:400px;display:flex;flex-direction:column;box-shadow:0 25px 50px rgba(0,0,0,0.6);box-sizing:border-box;">
+
+      <!-- Header -->
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:32px;">
+        <h1 style="color:white;font-size:28px;font-weight:700;margin:0;">Send to Friends</h1>
+        <button onclick="wNav('sendPoll')"
+          style="background:#475569;border:none;border-radius:12px;padding:10px 24px;color:white;font-size:14px;font-weight:500;transition:background 0.15s;cursor:pointer;"
+          onmouseover="this.style.background='#5a6678'" onmouseout="this.style.background='#475569'">Back</button>
+      </div>
+
+      <!-- Friends -->
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;">
+        <div style="display:flex;gap:32px;align-items:flex-end;">
+          ${friendsHtml}
+        </div>
+      </div>
+
+      <!-- Send Buttons -->
+      <div style="display:flex;justify-content:center;gap:16px;margin-top:32px;">
+        <button onclick="wSendPollToAll()"
+          style="background:linear-gradient(135deg,#2b7fff,#06b6d4);border:none;border-radius:16px;padding:16px 48px;color:white;font-size:20px;font-weight:700;box-shadow:0 8px 20px rgba(0,0,0,0.3);transition:opacity 0.15s;cursor:pointer;"
+          onmouseover="this.style.opacity='0.85'" onmouseout="this.style.opacity='1'">Send to All</button>
+        <button onclick="wSendPollToSelected()" ${selected.length===0?'disabled':''
+          } style="background:linear-gradient(135deg,#fa957e,#d01566);border:none;border-radius:16px;padding:16px 48px;color:white;font-size:20px;font-weight:700;box-shadow:0 8px 20px rgba(0,0,0,0.3);transition:all 0.15s;cursor:pointer;${selected.length===0?'opacity:0.5;cursor:not-allowed;':''}"
+          onmouseover="if(${selected.length}>0)this.style.opacity='0.85'" onmouseout="if(${selected.length}>0)this.style.opacity='1'">Send to Selected</button>
+      </div>
+
+    </div>
+  </div>`;
+}
+
+function wTogglePollFriend(id) {
+  const s = WS.pollSendSelectedFriends;
+  WS.pollSendSelectedFriends = s.includes(id) ? s.filter(x=>x!==id) : [...s, id];
+  renderWidget();
+}
+
+function wSendPollToAll() {
+  showToast('Poll sent to all friends!', 'success');
+  WS.pollOptions = ['','','']; WS.pollImage = null; WS.pollSendSelectedFriends = [];
+  wNav('home');
+}
+
+function wSendPollToSelected() {
+  if (WS.pollSendSelectedFriends.length === 0) { showToast('Select at least one friend', 'error'); return; }
+  const names = WS.pollSendSelectedFriends.map(id => { const f=POLL_FRIENDS.find(x=>x.id===id); return f?f.name:id; }).join(', ');
+  showToast(`Poll sent to ${names}!`, 'success');
+  WS.pollOptions = ['','','']; WS.pollImage = null; WS.pollSendSelectedFriends = [];
+  wNav('home');
+}
+
+/* ================================================================
+   INITIAL RENDER
+   ================================================================ */
+renderWidget();
+renderWorkflow();
+</script>
+</body>
+</html>
